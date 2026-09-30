@@ -13,7 +13,7 @@ export function pickPoint(points: Vec[]): Vec {
 
 type Sample = { t: number; u: number; v: number };
 type Crossing = { string: StringId; t: number; u: number; speed: number; dir: Dir };
-type Reject = { string: StringId; t: number; reason: "slow" | "zone" | "repeat" };
+type Reject = { string: StringId; t: number; reason: "slow" | "short" | "zone" | "repeat" };
 
 // Per string: which side the pick is on and where it last crossed the string line.
 type StringState = {
@@ -33,6 +33,7 @@ export class StrumDetector {
   only?: StringId; // play just this string; the other is ignored entirely. undefined = both
   tuning: TuningName = DEFAULT_TUNING;
   private prev?: Sample;
+  private history: Sample[] = []; // pick samples of the last travelMs
   private strings: StringState[] = [newString(), newString()];
   private group?: Group;
   private wasMuted = false;
@@ -47,16 +48,24 @@ export class StrumDetector {
     if (frame.muted && !this.wasMuted) out.push({ type: "mute", t: frame.t });
     this.wasMuted = frame.muted;
 
-    if (!frame.strum || frame.placing) {
-      // Fast strums blur the hand and the tracker drops it for a frame or two: keep the last position so a
-      // strum across the dropout still counts. A longer loss, or placing the dombyra, starts over.
-      if (frame.placing || !this.prev || frame.t - this.prev.t > this.opts.bridgeMs) this.lose(out);
+    // Positioning the dombyra: never strum.
+    if (frame.placing) {
+      this.lose(out);
+      return out;
+    }
+    // Hand gone. Fast strums blur the hand and the tracker drops it for a frame or two: keep the stroke,
+    // it's matched up when the hand is back. A longer loss starts over.
+    if (!frame.strum) {
+      if (this.prev && frame.t - this.prev.t > this.opts.maxGapMs) this.lose(out);
       else if (this.group && frame.t - this.group.t > this.opts.groupMs) this.flush(out);
       return out;
     }
 
     const { u, v } = toNeck(pickPoint(frame.strum.points), layout(this.cfg, aspect, frame.pose));
     const cur = { t: frame.t, u, v };
+    if (this.prev && cur.t - this.prev.t > this.opts.maxGapMs) this.lose(out); // too long: never strum across it
+    this.history = this.history.filter((s) => s.t >= cur.t - this.opts.travelMs);
+    this.history.push(cur);
     const results = ([0, 1] as const)
       .filter((i) => this.only === undefined || i === this.only)
       .flatMap((i) => this.track(i, cur) ?? []);
@@ -69,19 +78,22 @@ export class StrumDetector {
     return out;
   }
 
+  reset(): void {
+    this.prev = this.group = undefined;
+    this.history = [];
+    this.strings = [newString(), newString()];
+    this.wasMuted = false;
+  }
+
+  // Hand lost for good: close the strum, forget where the pick was.
   private lose(out: GestureEvent[]): void {
     this.flush(out);
     this.prev = undefined;
+    this.history = [];
     for (const s of this.strings) {
       s.side = 0;
       s.zero = undefined;
     }
-  }
-
-  reset(): void {
-    this.prev = this.group = undefined;
-    this.strings = [newString(), newString()];
-    this.wasMuted = false;
   }
 
   // Signed distance of the pick from string i (> 0 below it), frame heights.
@@ -119,10 +131,19 @@ export class StrumDetector {
     st.zero = undefined;
     if (!z || z.dir !== (side === 1 ? "down" : "up")) return undefined;
     if (z.speed < this.opts.minSpeed) return { string: i, t: z.t, reason: "slow" };
+    if (this.travel(z.dir, cur) < this.opts.minTravel) return { string: i, t: z.t, reason: "short" };
     if (z.u < this.opts.zone[0] || z.u > this.opts.zone[1]) return { string: i, t: z.t, reason: "zone" };
     if (z.t - st.lastPluck < this.opts.refractoryMs) return { string: i, t: z.t, reason: "repeat" };
     st.lastPluck = z.t;
     return { string: i, ...z };
+  }
+
+  // How far the pick has moved in `dir` within the last travelMs: a real stroke covers ground,
+  // a hand resting on a string only trembles back and forth.
+  private travel(dir: Dir, cur: Sample): number {
+    let best = 0;
+    for (const s of this.history) best = Math.max(best, dir === "down" ? cur.v - s.v : s.v - cur.v);
+    return best;
   }
 
   private pluck(h: Crossing, frame: HandFrame, out: GestureEvent[]): void {

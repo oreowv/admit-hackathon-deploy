@@ -69,7 +69,7 @@ export class P1Engine {
     const strumData = this.toHandData(strum, this.strumSmoother, t);
     // Grab first: it may move the pivot the neck then aims from.
     const dragging = this.grab.update(neckData, strumData, this.aim.value, this.opts.aspect);
-    const grip = neckData && gripPoint(neckData.points);
+    const grip = neckData && gripPoint(neckData.points, this.fret.cfg.gripLift);
     const angle = this.aim.update(grip, t, this.opts.aspect);
     const pose = { angle, pivot: { ...this.fret.cfg.pivot } };
     const fret = this.fret.update(neckData?.points, this.opts.aspect, pose);

@@ -38,7 +38,7 @@ export function drawOverlay(
   if (!frame) return;
   if (frame.neck) drawHand(ctx, frame.neck, COLORS.neck, w, h, frame.muted ? "MUTE" : `лад ${frame.fret}`);
   if (frame.strum) drawHand(ctx, frame.strum, COLORS.strum, w, h, `size ${frame.strum.size.toFixed(2)}`);
-  if (frame.neck) drawGrip(ctx, frame, w, h);
+  if (frame.neck) drawGrip(ctx, frame, instrument, w, h);
   if (frame.placing) drawHandle(ctx, instrument, frame, w, h);
 }
 
@@ -149,9 +149,9 @@ function drawHandle(ctx: CanvasRenderingContext2D, cfg: InstrumentConfig, frame:
   ctx.restore();
 }
 
-// Ring around the palm dot: the point fret detection uses. Blue on a fret, white off the frets.
-function drawGrip(ctx: CanvasRenderingContext2D, frame: HandFrame, w: number, h: number): void {
-  const g = gripPoint(frame.neck!.points);
+// The point fret detection uses, so the player sees where the system thinks they hold the neck.
+function drawGrip(ctx: CanvasRenderingContext2D, frame: HandFrame, cfg: InstrumentConfig, w: number, h: number): void {
+  const g = gripPoint(frame.neck!.points, cfg.gripLift, layout(cfg, w / h, frame.pose));
   ctx.strokeStyle = frame.fret > 0 ? COLORS.neck : "#fff";
   ctx.lineWidth = 3;
   ctx.beginPath();
