@@ -22,9 +22,9 @@ export type EngineOptions = {
 export const DEFAULT_ENGINE_OPTIONS: EngineOptions = {
   aspect: 16 / 9,
   mirror: true,
-  // The palm center already averages 5 landmarks, so it needs little smoothing; the high beta keeps a
-  // sliding hand nearly lag-free. Measured on a simulated slide: ~55 ms from crossing a fret line to the
-  // switch (was ~180 ms with 0.7 / 2), and no flicker resting on a line even with 3× normal jitter.
+  // The grip already averages the 4 knuckles, so it needs little smoothing; the high beta keeps a sliding
+  // hand nearly lag-free. Simulated slide across frets: ~55 ms from crossing a fret line to the switch
+  // (0.7 / 5: ~85 ms, 0.7 / 2: ~180 ms), and no flicker resting on a line even with 3× normal jitter.
   neckFilter: { minCutoff: 2.0, beta: 10 },
   strumFilter: { minCutoff: 2.0, beta: 8.0 },
   instrument: DEFAULT_INSTRUMENT,

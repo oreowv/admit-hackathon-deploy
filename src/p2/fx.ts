@@ -8,7 +8,7 @@ import type { GestureEvent, StringId } from "./types";
 const RING_MS = 700;
 const TRAIL_MS = 250;
 const COLOR = "#fde047";
-const REJECT_TEXT = { slow: "медленно", zone: "вне зоны боя", repeat: "повтор" };
+const REJECT_TEXT = { slow: "медленно", short: "короткий взмах", zone: "вне зоны боя", repeat: "повтор" };
 
 // Strum feedback on the canvas: plucked strings vibrate and show their note, the pick point is marked
 // with a short trail, the last strum is labelled (↓/↑ and which strings), and a crossing that didn't

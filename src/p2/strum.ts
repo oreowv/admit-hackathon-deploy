@@ -19,6 +19,7 @@ type Reject = { string: StringId; t: number; reason: "slow" | "short" | "zone" |
 type StringState = {
   side: -1 | 0 | 1; // -1 above, 1 below, 0 not known yet. Flips only once the pick is `margin` past the line
   zero?: Omit<Crossing, "string">; // last sign change of the pick's distance to the line, interpolated
+  pending?: Crossing; // crossed, but the stroke hasn't covered minTravel yet (see track)
   lastPluck: number;
 };
 
@@ -68,7 +69,7 @@ export class StrumDetector {
     this.history.push(cur);
     const results = ([0, 1] as const)
       .filter((i) => this.only === undefined || i === this.only)
-      .flatMap((i) => this.track(i, cur) ?? []);
+      .flatMap((i) => this.track(i, cur));
     this.prev = cur;
     for (const r of results.sort((a, b) => a.t - b.t)) {
       if ("reason" in r) out.push({ type: "reject", ...r });
@@ -92,7 +93,7 @@ export class StrumDetector {
     this.history = [];
     for (const s of this.strings) {
       s.side = 0;
-      s.zero = undefined;
+      s.zero = s.pending = undefined;
     }
   }
 
@@ -101,8 +102,9 @@ export class StrumDetector {
     return s.v - stringOffset(i, s.u, this.cfg);
   }
 
-  private track(i: StringId, cur: Sample): Crossing | Reject | undefined {
+  private track(i: StringId, cur: Sample): (Crossing | Reject)[] {
     const st = this.strings[i];
+    const out: (Crossing | Reject)[] = [];
     const d = this.dist(i, cur);
     if (this.prev) {
       const dp = this.dist(i, this.prev);
@@ -120,22 +122,44 @@ export class StrumDetector {
 
     const m = this.opts.margin;
     const side = d > m ? 1 : d < -m ? -1 : 0;
-    if (side === 0) return undefined; // inside the jitter band: undecided
+
+    // A crossing held back because the stroke had barely started (a flick beginning right at the string):
+    // it sounds, with its original timing, once the stroke has covered minTravel in the same direction.
+    // Turning back first means it was a trembling hand.
+    const p = st.pending;
+    if (p) {
+      const back = side === (p.dir === "down" ? -1 : 1);
+      if (!back && this.travel(p.dir, cur) >= this.opts.minTravel) {
+        st.pending = undefined;
+        out.push(this.accept(p));
+      } else if (back || cur.t - p.t > this.opts.travelMs) {
+        st.pending = undefined;
+        out.push({ string: i, t: p.t, reason: "short" });
+      }
+    }
+
+    if (side === 0) return out; // inside the jitter band: undecided
     const was = st.side;
     st.side = side;
-    if (was === 0 || was === side) return undefined;
+    if (was === 0 || was === side) return out;
 
     // Clearly moved to the other side: a crossing, if it was a real, fast enough one past the frets.
     // Rejections say why, so misses can be seen on screen and tuned.
     const z = st.zero;
     st.zero = undefined;
-    if (!z || z.dir !== (side === 1 ? "down" : "up")) return undefined;
-    if (z.speed < this.opts.minSpeed) return { string: i, t: z.t, reason: "slow" };
-    if (this.travel(z.dir, cur) < this.opts.minTravel) return { string: i, t: z.t, reason: "short" };
-    if (z.u < this.opts.zone[0] || z.u > this.opts.zone[1]) return { string: i, t: z.t, reason: "zone" };
-    if (z.t - st.lastPluck < this.opts.refractoryMs) return { string: i, t: z.t, reason: "repeat" };
-    st.lastPluck = z.t;
-    return { string: i, ...z };
+    if (!z || z.dir !== (side === 1 ? "down" : "up")) return out;
+    if (z.speed < this.opts.minSpeed) return [...out, { string: i, t: z.t, reason: "slow" }];
+    if (z.u < this.opts.zone[0] || z.u > this.opts.zone[1]) return [...out, { string: i, t: z.t, reason: "zone" }];
+    if (this.travel(z.dir, cur) < this.opts.minTravel) st.pending = { string: i, ...z };
+    else out.push(this.accept({ string: i, ...z }));
+    return out;
+  }
+
+  private accept(c: Crossing): Crossing | Reject {
+    const st = this.strings[c.string];
+    if (c.t - st.lastPluck < this.opts.refractoryMs) return { string: c.string, t: c.t, reason: "repeat" };
+    st.lastPluck = c.t;
+    return c;
   }
 
   // How far the pick has moved in `dir` within the last travelMs: a real stroke covers ground,
