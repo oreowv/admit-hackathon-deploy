@@ -20,7 +20,7 @@ export class FretTracker {
       this.streak = 0;
       return (this.current = 0);
     }
-    const raw = this.rawFret(layout(this.cfg, aspect, pose), gripPoint(points, this.cfg.gripLift));
+    const raw = this.rawFret(layout(this.cfg, aspect, pose), gripPoint(points));
     if (raw === this.current) {
       this.streak = 0;
     } else {

@@ -2,14 +2,16 @@ import type { Point } from "./types";
 import { dist, WRIST } from "./geometry";
 
 const TIPS = [8, 12, 16, 20];
-const PIPS = [6, 10, 14, 18];
+const KNUCKLES = [5, 9, 13, 17];
 
-// A finger is curled when its tip is closer to the wrist than its middle joint.
+// A finger is folded into the palm when its tip is closer to the wrist than its own knuckle. A hand
+// holding the neck curls its fingers too, but the tips stay out past the knuckles, so it's not a fist
+// (comparing with the middle joint instead muted every note played on a fret).
 export function curledFingers(points: Point[], aspect = 1): number {
   const w = points[WRIST];
   let n = 0;
   for (let i = 0; i < TIPS.length; i++) {
-    if (dist(points[TIPS[i]], w, aspect) < dist(points[PIPS[i]], w, aspect)) n++;
+    if (dist(points[TIPS[i]], w, aspect) < dist(points[KNUCKLES[i]], w, aspect)) n++;
   }
   return n;
 }

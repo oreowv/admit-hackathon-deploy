@@ -5,8 +5,11 @@ export type Dir = "down" | "up"; // down = towards the bottom string on screen
 
 export type GestureEvent =
   // One string sounded: fired the moment the pick crosses it, so audio has no extra latency.
-  | { type: "pluck"; string: StringId; fret: number; vel: number; muted: boolean; t: number }
+  // `first`: the first string of a sweep, i.e. the start of a strum (audio adds the finger's hit there).
+  | { type: "pluck"; string: StringId; fret: number; vel: number; muted: boolean; first: boolean; t: number }
   // One sweep of the strum hand: the strings it hit, in order. [0] or [1] = single string, [0, 1] / [1, 0] = both.
   | { type: "strum"; dir: Dir; strings: StringId[]; vel: number; speed: number; fret: number; t: number }
   | { type: "mute"; t: number }
+  // A string line was crossed but it didn't count, and why: too slow, outside the strum zone, or a repeat.
+  | { type: "reject"; string: StringId; reason: "slow" | "zone" | "repeat"; t: number }
   | { type: "technique"; issue: "weak" | "partial" | "handLost" | "tooFar" | "offNeck"; t: number };

@@ -22,7 +22,10 @@ export type EngineOptions = {
 export const DEFAULT_ENGINE_OPTIONS: EngineOptions = {
   aspect: 16 / 9,
   mirror: true,
-  neckFilter: { minCutoff: 0.7, beta: 2.0 }, // steadier fingertip on narrow frets
+  // The palm center already averages 5 landmarks, so it needs little smoothing; the high beta keeps a
+  // sliding hand nearly lag-free. Measured on a simulated slide: ~55 ms from crossing a fret line to the
+  // switch (was ~180 ms with 0.7 / 2), and no flicker resting on a line even with 3× normal jitter.
+  neckFilter: { minCutoff: 2.0, beta: 10 },
   strumFilter: { minCutoff: 2.0, beta: 8.0 },
   instrument: DEFAULT_INSTRUMENT,
   roles: DEFAULT_ROLE_OPTIONS,
@@ -66,16 +69,20 @@ export class P1Engine {
     const strumData = this.toHandData(strum, this.strumSmoother, t);
     // Grab first: it may move the pivot the neck then aims from.
     const dragging = this.grab.update(neckData, strumData, this.aim.value, this.opts.aspect);
-    const grip = neckData && gripPoint(neckData.points, this.fret.cfg.gripLift);
+    const grip = neckData && gripPoint(neckData.points);
     const angle = this.aim.update(grip, t, this.opts.aspect);
     const pose = { angle, pivot: { ...this.fret.cfg.pivot } };
+    const fret = this.fret.update(neckData?.points, this.opts.aspect, pose);
+    const fist = this.mute.update(neckData?.points, this.opts.aspect);
 
     return {
       t,
       neck: neckData,
       strum: strumData,
-      fret: this.fret.update(neckData?.points, this.opts.aspect, pose),
-      muted: this.mute.update(neckData?.points, this.opts.aspect),
+      fret,
+      // A fist on the frets is a hand holding the neck (pressing a fret in the air folds the fingers
+      // just like a fist); only a fist away from the frets mutes. Otherwise every fretted note was muted.
+      muted: fist && fret === 0,
       pose,
       placing: this.grab.enabled,
       dragging,

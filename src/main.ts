@@ -2,8 +2,6 @@ import {
   FrameBus,
   LiveSource,
   ReplaySource,
-  Recorder,
-  downloadRecording,
   drawOverlay,
   parseRecording,
   P1Engine,
@@ -11,6 +9,7 @@ import {
   type Recording,
 } from "./p1";
 import { DombyraAudio, StrumDetector, StrumFx } from "./p2";
+import { VideoCapture, saveClip, type Clip } from "./capture";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -27,11 +26,14 @@ const ui = {
   message: $("message"),
   btnCamera: $<HTMLButtonElement>("btn-camera"),
   fileReplay: $<HTMLInputElement>("file-replay"),
-  btnRecord: $<HTMLButtonElement>("btn-record"),
-  recLabel: $<HTMLSelectElement>("rec-label"),
-  recDuration: $<HTMLSelectElement>("rec-duration"),
-  recProgress: $<HTMLProgressElement>("rec-progress"),
+  btnVideo: $<HTMLButtonElement>("btn-video"),
+  clip: $<HTMLDivElement>("clip"),
+  clipVideo: $<HTMLVideoElement>("clip-video"),
+  clipSave: $<HTMLButtonElement>("clip-save"),
+  clipDiscard: $<HTMLButtonElement>("clip-discard"),
   btnPlace: $<HTMLButtonElement>("btn-place"),
+  strings: $<HTMLSelectElement>("strings"),
+  sustain: $<HTMLSelectElement>("sustain"),
   follow: $<HTMLInputElement>("follow"),
   tilt: $<HTMLInputElement>("tilt"),
   height: $<HTMLInputElement>("height"),
@@ -42,12 +44,48 @@ export const bus = new FrameBus();
 const engine = new P1Engine();
 let live: LiveSource | undefined;
 let replay: ReplaySource | undefined;
-let recorder: Recorder | undefined;
 let mode: "none" | "camera" | "replay" = "none";
 
 const strum = new StrumDetector(engine.fret.cfg);
 const audio = new DombyraAudio();
 const fx = new StrumFx();
+
+// Both strings, or just the upper (D) / lower (G) one. Remembered per browser.
+const STRINGS_KEY = "air-dombyra:strings";
+function setStrings(value: string): void {
+  if (!["both", "0", "1"].includes(value)) value = "both";
+  strum.only = value === "0" ? 0 : value === "1" ? 1 : undefined;
+  ui.strings.value = value;
+  try {
+    localStorage.setItem(STRINGS_KEY, value);
+  } catch {
+    // no storage: choice just isn't remembered
+  }
+}
+try {
+  setStrings(localStorage.getItem(STRINGS_KEY) ?? "both");
+} catch {
+  setStrings("both");
+}
+ui.strings.addEventListener("change", () => setStrings(ui.strings.value));
+
+// Long ring or a short, percussive dombyra-like decay. Remembered per browser.
+const SUSTAIN_KEY = "air-dombyra:sustain";
+function setSustain(value: string): void {
+  audio.sustain = value === "short" ? "short" : "long";
+  ui.sustain.value = audio.sustain;
+  try {
+    localStorage.setItem(SUSTAIN_KEY, audio.sustain);
+  } catch {
+    // no storage: choice just isn't remembered
+  }
+}
+try {
+  setSustain(localStorage.getItem(SUSTAIN_KEY) ?? "long");
+} catch {
+  setSustain("long");
+}
+ui.sustain.addEventListener("change", () => setSustain(ui.sustain.value));
 
 Object.assign(window, { p1: { bus, engine }, p2: { strum, audio } }); // for poking from DevTools
 
@@ -71,7 +109,7 @@ async function useCamera(): Promise<void> {
     mode = "camera";
     ui.source.textContent = "камера";
     ui.message.textContent = "";
-    ui.btnRecord.disabled = false;
+    ui.btnVideo.disabled = !VideoCapture.supported;
   } catch (e) {
     console.error(e);
     ui.message.textContent = `Не удалось открыть камеру: ${(e as Error).message}`;
@@ -83,7 +121,6 @@ async function useCamera(): Promise<void> {
 function useReplay(rec: Recording, name: string): void {
   live?.stop();
   replay?.stop();
-  recorder?.finish();
   strum.reset();
   canvas.width = rec.width || 1280;
   canvas.height = rec.height || 720;
@@ -92,7 +129,7 @@ function useReplay(rec: Recording, name: string): void {
   mode = "replay";
   ui.source.textContent = `запись: ${name}`;
   ui.message.textContent = "";
-  ui.btnRecord.disabled = true;
+  ui.btnVideo.disabled = !VideoCapture.supported;
 }
 
 ui.btnCamera.addEventListener("click", useCamera);
@@ -108,27 +145,46 @@ ui.fileReplay.addEventListener("change", async () => {
   ui.fileReplay.value = "";
 });
 
-// ---- recording -----------------------------------------------------------
+// ---- video recording -----------------------------------------------------
 
-ui.btnRecord.addEventListener("click", () => {
-  if (recorder?.recording) {
-    recorder.finish();
+// What's on the stage (camera, dombyra, strings, effects) plus the sound: record → stop → preview →
+// save (the player's own click, so the browser shows its save dialog / download) or delete.
+const capture = new VideoCapture(canvas);
+let clip: Clip | undefined;
+
+function showClip(c: Clip | undefined): void {
+  if (ui.clipVideo.src) URL.revokeObjectURL(ui.clipVideo.src);
+  clip = c;
+  ui.clip.hidden = !c;
+  if (c) ui.clipVideo.src = URL.createObjectURL(c.blob);
+  else ui.clipVideo.removeAttribute("src");
+}
+
+ui.btnVideo.addEventListener("click", async () => {
+  if (capture.recording) {
+    ui.btnVideo.disabled = true;
+    ui.btnVideo.textContent = "Сохраняю…";
+    try {
+      showClip(await capture.stop());
+      ui.message.textContent = "";
+    } catch (e) {
+      ui.message.textContent = `Запись не удалась: ${(e as Error).message}`;
+    }
+    ui.btnVideo.classList.remove("recording");
+    ui.btnVideo.textContent = "● Записать видео";
+    ui.btnVideo.disabled = false;
     return;
   }
-  recorder = new Recorder(
-    Number(ui.recDuration.value),
-    { label: ui.recLabel.value, width: canvas.width, height: canvas.height },
-    (rec) => {
-      downloadRecording(rec);
-      ui.btnRecord.classList.remove("recording");
-      ui.btnRecord.textContent = "● Записать";
-      ui.recProgress.value = 0;
-    },
-  );
-  recorder.start();
-  ui.btnRecord.classList.add("recording");
-  ui.btnRecord.textContent = "■ Остановить";
+  showClip(undefined);
+  await audio.unlock(); // the sound track only exists once audio is running
+  capture.start(audio.captureTrack());
+  ui.btnVideo.classList.add("recording");
 });
+
+ui.clipSave.addEventListener("click", async () => {
+  if (clip && (await saveClip(clip))) showClip(undefined);
+});
+ui.clipDiscard.addEventListener("click", () => showClip(undefined));
 
 // ---- instrument placement ------------------------------------------------
 
@@ -197,7 +253,6 @@ let frameCount = 0;
 let fpsWindowStart = performance.now();
 
 bus.subscribe((f: HandFrame) => {
-  recorder?.push(f);
   frameCount++;
   // Straight from the frame callback to the synth: no rAF or React in between.
   for (const ev of strum.push(f, canvas.width / canvas.height)) {
@@ -208,7 +263,7 @@ bus.subscribe((f: HandFrame) => {
 
 function render(): void {
   const f = bus.latest;
-  drawOverlay(ctx, f, mode === "camera" ? video : null, instrument);
+  drawOverlay(ctx, f, mode === "camera" ? video : null, instrument, strum.only);
   fx.draw(ctx, f, instrument, performance.now());
 
   ui.fret.textContent = String(f?.fret ?? 0);
@@ -217,7 +272,10 @@ function render(): void {
   ui.handNeck.textContent = f?.neck ? "гриф ✓" : "гриф ✕";
   ui.handStrum.classList.toggle("on", !!f?.strum);
   ui.handStrum.textContent = f?.strum ? "бой ✓" : "бой ✕";
-  if (recorder?.recording) ui.recProgress.value = recorder.progress;
+  if (capture.recording) {
+    const s = Math.floor(capture.elapsedMs / 1000);
+    ui.btnVideo.textContent = `■ Остановить ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
 
   const now = performance.now();
   if (now - fpsWindowStart >= 1000) {

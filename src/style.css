@@ -119,3 +119,7 @@ button.primary { background: #0e7490; border-color: #0e7490; }
 button.recording { background: var(--danger); border-color: var(--danger); }
 .file input { display: none; }
 progress { width: 100%; height: 6px; }
+
+.clip { display: flex; flex-direction: column; gap: 8px; }
+.clip[hidden] { display: none; }
+.clip video { width: 100%; border-radius: 8px; background: #000; }

@@ -6,16 +6,24 @@ import { pickPoint } from "./strum";
 import type { GestureEvent, StringId } from "./types";
 
 const RING_MS = 700;
+const TRAIL_MS = 250;
 const COLOR = "#fde047";
+const REJECT_TEXT = { slow: "медленно", zone: "вне зоны боя", repeat: "повтор" };
 
-// Strum feedback on the canvas: plucked strings vibrate and show their note, the pick point is marked,
-// and the last strum is labelled (↓/↑ and which strings). Times are performance.now() at receipt.
+// Strum feedback on the canvas: plucked strings vibrate and show their note, the pick point is marked
+// with a short trail, the last strum is labelled (↓/↑ and which strings), and a crossing that didn't
+// count says why. Times are performance.now() at receipt.
 export class StrumFx {
   private plucks: ({ at: number; vel: number; muted: boolean; note: string } | undefined)[] = [];
   private last?: { text: string; at: number };
+  private reject?: { text: string; at: number };
+  private trail: { x: number; y: number; at: number }[] = [];
+  private lastFrameT?: number;
 
   handle(ev: GestureEvent, now: number): void {
-    if (ev.type === "pluck") {
+    if (ev.type === "reject") {
+      this.reject = { text: REJECT_TEXT[ev.reason], at: now };
+    } else if (ev.type === "pluck") {
       const note = noteName(midiFor(ev.string, ev.fret));
       this.plucks[ev.string] = { at: now, vel: ev.vel, muted: ev.muted, note };
     } else if (ev.type === "strum") {
@@ -65,13 +73,35 @@ export class StrumFx {
       ctx.fillText(this.last.text, at.x * w, at.y * h);
     }
 
-    // The point the detector tracks, so the player sees what "hits" the strings.
+    // The point the detector tracks and its recent path, so the player sees what "hits" the strings.
+    if (frame?.strum && frame.t !== this.lastFrameT) {
+      this.lastFrameT = frame.t;
+      const pk = pickPoint(frame.strum.points);
+      this.trail.push({ x: pk.x, y: pk.y, at: now });
+    }
+    this.trail = this.trail.filter((p) => now - p.at < TRAIL_MS);
+    ctx.strokeStyle = COLOR;
+    ctx.lineWidth = 3;
+    for (let k = 1; k < this.trail.length; k++) {
+      const [a, b] = [this.trail[k - 1], this.trail[k]];
+      ctx.globalAlpha = 1 - (now - b.at) / TRAIL_MS;
+      ctx.beginPath();
+      ctx.moveTo(a.x * w, a.y * h);
+      ctx.lineTo(b.x * w, b.y * h);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
     if (frame?.strum) {
       const pk = pickPoint(frame.strum.points);
       ctx.fillStyle = COLOR;
       ctx.beginPath();
       ctx.arc(pk.x * w, pk.y * h, 7, 0, Math.PI * 2);
       ctx.fill();
+      if (this.reject && now - this.reject.at < 700) {
+        ctx.fillStyle = "rgba(255,255,255,0.75)";
+        ctx.font = `${Math.round(h * 0.028)}px system-ui, sans-serif`;
+        ctx.fillText(this.reject.text, pk.x * w, pk.y * h - 18);
+      }
     }
     ctx.restore();
   }

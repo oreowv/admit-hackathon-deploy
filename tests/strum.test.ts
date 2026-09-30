@@ -57,6 +57,17 @@ describe("StrumDetector", () => {
     expect(strums[0]).toMatchObject({ dir: "down", strings: [0, 1], fret: 2 });
   });
 
+  it("marks the first string of each sweep (where the strum's finger hit goes)", () => {
+    const d = new StrumDetector(cfg);
+    const evs = [...sweep(d, 0, -0.1, 0.1, 200), ...sweep(d, 500, 0.1, -0.1, 200)];
+    expect(of(evs, "pluck").map((e) => [e.string, e.first])).toEqual([
+      [0, true],
+      [1, false],
+      [1, true],
+      [0, false],
+    ]);
+  });
+
   it("crossing times are exact to the millisecond, between frames", () => {
     const d = new StrumDetector(cfg);
     const [p0, p1] = of(sweep(d, 1000, -0.1, 0.1, 200), "pluck");
@@ -120,15 +131,46 @@ describe("StrumDetector", () => {
     expect(of(sweep(d, 0, -0.1, 0.1, 200, { u: 0.3 }), "pluck")).toHaveLength(0);
   });
 
-  it("never strums across a gap where the hand was lost", () => {
+  it("a fast strum still counts when the tracker drops the blurred hand for a frame or two", () => {
     const d = new StrumDetector(cfg);
     const evs = [
       ...d.push(frameAt(0, -0.1), ASPECT),
       ...d.push(frameAt(33, undefined), ASPECT),
-      ...d.push(frameAt(66, 0.1), ASPECT),
+      ...d.push(frameAt(66, undefined), ASPECT),
       ...d.push(frameAt(99, 0.1), ASPECT),
+      ...d.push(frameAt(132, 0.1), ASPECT),
     ];
+    expect(of(evs, "pluck").map((e) => e.string)).toEqual([0, 1]);
+    expect(of(evs, "strum")).toHaveLength(1);
+  });
+
+  it("but never strums across a long loss of the hand", () => {
+    const d = new StrumDetector(cfg);
+    const evs = [...d.push(frameAt(0, -0.1), ASPECT)];
+    for (let t = 33; t <= 400; t += 33) evs.push(...d.push(frameAt(t, undefined), ASPECT));
+    evs.push(...d.push(frameAt(433, 0.1), ASPECT), ...d.push(frameAt(466, 0.1), ASPECT));
     expect(of(evs, "pluck")).toHaveLength(0);
+  });
+
+  it("a wrist flick counts: only the fingertip crosses the strings, the knuckles stay put", () => {
+    const d = new StrumDetector(cfg);
+    const L = layout(cfg, ASPECT);
+    const evs: GestureEvent[] = [];
+    const reach = (Math.abs(off(0)) + DEFAULT_STRUM.margin) * 1.6; // fingertip swing just past both strings
+    for (let k = 0; k <= 6; k++) {
+      const tip = fromNeck(U, -reach + (2 * reach * k) / 6, L);
+      const rest = fromNeck(U + 0.05, 0.12, L); // palm and knuckles, still
+      const points = makeHand(0, 0).map((_, j) => (j === 7 || j === 8 ? { ...tip, z: 0 } : { ...rest, z: 0 }));
+      evs.push(...d.push({ t: k * 20, strum: { points, palm: rest, size: 0.1 }, fret: 0, muted: false }, ASPECT));
+    }
+    expect(of(evs, "pluck").map((e) => e.string)).toEqual([0, 1]);
+  });
+
+  it("says why a crossing didn't count", () => {
+    const slow = sweep(new StrumDetector(cfg), 0, -0.1, 0.1, 3000);
+    expect(of(slow, "reject").map((e) => e.reason)).toEqual(["slow", "slow"]);
+    const zone = sweep(new StrumDetector(cfg), 0, -0.1, 0.1, 200, { u: 0.3 });
+    expect(of(zone, "reject").map((e) => e.reason)).toEqual(["zone", "zone"]);
   });
 
   it("is silent while the player is placing the dombyra", () => {
@@ -169,6 +211,46 @@ describe("StrumDetector", () => {
     expect(of(evs, "pluck").every((e) => e.fret === 4 && e.muted)).toBe(true);
   });
 
+  it("only the upper string: a sweep over both plays just the top, as an immediate one-string strum", () => {
+    const d = new StrumDetector(cfg);
+    d.only = 0;
+    const evs: GestureEvent[] = [];
+    // Collect frame by frame to check the strum closes on the frame of the pluck, without waiting.
+    const n = 6;
+    let strumFrame = -1;
+    let pluckFrame = -1;
+    for (let k = 0; k <= n; k++) {
+      const got = d.push(frameAt((k * 200) / n, -0.1 + (0.2 * k) / n), ASPECT);
+      if (got.some((e) => e.type === "pluck") && pluckFrame < 0) pluckFrame = k;
+      if (got.some((e) => e.type === "strum") && strumFrame < 0) strumFrame = k;
+      evs.push(...got);
+    }
+    expect(of(evs, "pluck").map((e) => e.string)).toEqual([0]);
+    expect(of(evs, "strum")).toHaveLength(1);
+    expect(of(evs, "strum")[0]).toMatchObject({ dir: "down", strings: [0] });
+    expect(strumFrame).toBe(pluckFrame);
+  });
+
+  it("only the lower string: both directions play just the bottom", () => {
+    const d = new StrumDetector(cfg);
+    d.only = 1;
+    const evs = [...sweep(d, 0, -0.1, 0.1, 200), ...sweep(d, 500, 0.1, -0.1, 200)];
+    expect(of(evs, "pluck").map((e) => e.string)).toEqual([1, 1]);
+    expect(of(evs, "strum").map((e) => [e.dir, e.strings])).toEqual([
+      ["down", [1]],
+      ["up", [1]],
+    ]);
+  });
+
+  it("switching back to both strings plays both again", () => {
+    const d = new StrumDetector(cfg);
+    d.only = 1;
+    sweep(d, 0, -0.1, 0.1, 200);
+    d.only = undefined;
+    const evs = sweep(d, 500, 0.1, -0.1, 200);
+    expect(of(evs, "strum")[0]).toMatchObject({ dir: "up", strings: [1, 0] });
+  });
+
   it("the same string can't double-trigger inside the refractory window", () => {
     const d = new StrumDetector(cfg);
     const evs: GestureEvent[] = [];
@@ -181,11 +263,12 @@ describe("StrumDetector", () => {
 });
 
 describe("notes", () => {
-  it("open strings are D3 and G3; frets go up the dombyra scale", () => {
+  it("open strings are D3 and G3; frets are semitones, one octave per string", () => {
     expect(noteName(midiFor(0, 0))).toBe("D3");
     expect(noteName(midiFor(1, 0))).toBe("G3");
-    expect(noteName(midiFor(0, 3))).toBe("G3"); // 5 semitones: fret 3 on the D string = open G
-    expect(noteName(midiFor(1, 6))).toBe("F4");
+    expect(noteName(midiFor(0, 5))).toBe("G3"); // fret 5 on the D string = open G, like a guitar's 4th
+    expect(noteName(midiFor(0, 12))).toBe("D4");
+    expect(noteName(midiFor(1, 12))).toBe("G4");
   });
 });
 

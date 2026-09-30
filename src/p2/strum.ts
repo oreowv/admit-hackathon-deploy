@@ -3,14 +3,16 @@ import { DEFAULT_STRUM, type InstrumentConfig, type StrumConfig, type Vec } from
 import { layout, stringOffset, toNeck } from "../instrument";
 import type { Dir, GestureEvent, StringId } from "./types";
 
-// The pick: halfway between the index knuckle and fingertip. The fingertip is what hits the strings but
-// blurs and jumps on fast strums; the knuckle stays steady. Halfway keeps the reach without the noise.
+// The pick: the end of the index finger (between its last joint and the tip). On a dombyra the strike is
+// the index fingernail, and in a wrist flick the fingertip travels much further than the knuckle, so it
+// reliably crosses both strings. Averaging with the last joint takes the edge off fingertip jitter.
 export function pickPoint(points: Vec[]): Vec {
-  return { x: (points[5].x + points[8].x) / 2, y: (points[5].y + points[8].y) / 2 };
+  return { x: (points[7].x + points[8].x) / 2, y: (points[7].y + points[8].y) / 2 };
 }
 
 type Sample = { t: number; u: number; v: number };
 type Crossing = { string: StringId; t: number; u: number; speed: number; dir: Dir };
+type Reject = { string: StringId; t: number; reason: "slow" | "zone" | "repeat" };
 
 // Per string: which side the pick is on and where it last crossed the string line.
 type StringState = {
@@ -27,6 +29,7 @@ type Group = { dir: Dir; strings: StringId[]; t: number; vel: number; speed: num
 // sub-frame timing (the exact moment between two frames the line was crossed). A string sounds as soon as
 // it's crossed; crossings of one sweep are grouped into a single strum event with the strings it hit.
 export class StrumDetector {
+  only?: StringId; // play just this string; the other is ignored entirely. undefined = both
   private prev?: Sample;
   private strings: StringState[] = [newString(), newString()];
   private group?: Group;
@@ -42,21 +45,35 @@ export class StrumDetector {
     if (frame.muted && !this.wasMuted) out.push({ type: "mute", t: frame.t });
     this.wasMuted = frame.muted;
 
-    // No hand, or the player is positioning the dombyra: never strum across the gap.
     if (!frame.strum || frame.placing) {
-      this.flush(out);
-      this.prev = undefined;
-      for (const s of this.strings) s.side = 0;
+      // Fast strums blur the hand and the tracker drops it for a frame or two: keep the last position so a
+      // strum across the dropout still counts. A longer loss, or placing the dombyra, starts over.
+      if (frame.placing || !this.prev || frame.t - this.prev.t > this.opts.bridgeMs) this.lose(out);
+      else if (this.group && frame.t - this.group.t > this.opts.groupMs) this.flush(out);
       return out;
     }
 
     const { u, v } = toNeck(pickPoint(frame.strum.points), layout(this.cfg, aspect, frame.pose));
     const cur = { t: frame.t, u, v };
-    const hits = ([0, 1] as const).flatMap((i) => this.track(i, cur) ?? []);
+    const results = ([0, 1] as const)
+      .filter((i) => this.only === undefined || i === this.only)
+      .flatMap((i) => this.track(i, cur) ?? []);
     this.prev = cur;
-    for (const h of hits.sort((a, b) => a.t - b.t)) this.pluck(h, frame, out);
+    for (const r of results.sort((a, b) => a.t - b.t)) {
+      if ("reason" in r) out.push({ type: "reject", ...r });
+      else this.pluck(r, frame, out);
+    }
     if (this.group && frame.t - this.group.t > this.opts.groupMs) this.flush(out);
     return out;
+  }
+
+  private lose(out: GestureEvent[]): void {
+    this.flush(out);
+    this.prev = undefined;
+    for (const s of this.strings) {
+      s.side = 0;
+      s.zero = undefined;
+    }
   }
 
   reset(): void {
@@ -70,7 +87,7 @@ export class StrumDetector {
     return s.v - stringOffset(i, s.u, this.cfg);
   }
 
-  private track(i: StringId, cur: Sample): Crossing | undefined {
+  private track(i: StringId, cur: Sample): Crossing | Reject | undefined {
     const st = this.strings[i];
     const d = this.dist(i, cur);
     if (this.prev) {
@@ -94,21 +111,20 @@ export class StrumDetector {
     st.side = side;
     if (was === 0 || was === side) return undefined;
 
-    // Clearly moved to the other side: a crossing, if it was a real, fast enough one over the body.
+    // Clearly moved to the other side: a crossing, if it was a real, fast enough one past the frets.
+    // Rejections say why, so misses can be seen on screen and tuned.
     const z = st.zero;
     st.zero = undefined;
     if (!z || z.dir !== (side === 1 ? "down" : "up")) return undefined;
-    if (z.speed < this.opts.minSpeed) return undefined;
-    if (z.u < this.opts.zone[0] || z.u > this.opts.zone[1]) return undefined;
-    if (z.t - st.lastPluck < this.opts.refractoryMs) return undefined;
+    if (z.speed < this.opts.minSpeed) return { string: i, t: z.t, reason: "slow" };
+    if (z.u < this.opts.zone[0] || z.u > this.opts.zone[1]) return { string: i, t: z.t, reason: "zone" };
+    if (z.t - st.lastPluck < this.opts.refractoryMs) return { string: i, t: z.t, reason: "repeat" };
     st.lastPluck = z.t;
     return { string: i, ...z };
   }
 
   private pluck(h: Crossing, frame: HandFrame, out: GestureEvent[]): void {
     const vel = this.velocity(h.speed);
-    out.push({ type: "pluck", string: h.string, fret: frame.fret, vel, muted: frame.muted, t: h.t });
-
     const g = this.group;
     if (g && (g.dir !== h.dir || g.strings.includes(h.string) || h.t - g.t > this.opts.groupMs)) this.flush(out);
     if (this.group) {
@@ -118,7 +134,10 @@ export class StrumDetector {
     } else {
       this.group = { dir: h.dir, strings: [h.string], t: h.t, vel, speed: h.speed, fret: frame.fret };
     }
-    if (this.group.strings.length === 2) this.flush(out); // both strings hit: nothing left to wait for
+    const first = this.group.strings.length === 1;
+    out.push({ type: "pluck", string: h.string, fret: frame.fret, vel, muted: frame.muted, first, t: h.t });
+    // Every playable string hit: nothing left to wait for.
+    if (this.group.strings.length === (this.only === undefined ? 2 : 1)) this.flush(out);
   }
 
   private flush(out: GestureEvent[]): void {

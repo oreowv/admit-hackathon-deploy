@@ -18,6 +18,7 @@ export function drawOverlay(
   frame: HandFrame | undefined,
   video: HTMLVideoElement | null,
   instrument: InstrumentConfig,
+  only?: 0 | 1, // the one string being played; the other is drawn switched off
 ): void {
   const { width: w, height: h } = ctx.canvas;
   ctx.clearRect(0, 0, w, h);
@@ -33,16 +34,23 @@ export function drawOverlay(
     ctx.fillRect(0, 0, w, h);
   }
 
-  drawInstrument(ctx, instrument, frame, w, h);
+  drawInstrument(ctx, instrument, frame, w, h, only);
   if (!frame) return;
   if (frame.neck) drawHand(ctx, frame.neck, COLORS.neck, w, h, frame.muted ? "MUTE" : `лад ${frame.fret}`);
   if (frame.strum) drawHand(ctx, frame.strum, COLORS.strum, w, h, `size ${frame.strum.size.toFixed(2)}`);
-  if (frame.neck) drawGrip(ctx, frame, instrument.gripLift, w, h);
+  if (frame.neck) drawGrip(ctx, frame, w, h);
   if (frame.placing) drawHandle(ctx, instrument, frame, w, h);
 }
 
 // Drawn in a local frame along the strings: x = px from the nut, y = px across (down).
-function drawInstrument(ctx: CanvasRenderingContext2D, cfg: InstrumentConfig, frame: HandFrame | undefined, w: number, h: number): void {
+function drawInstrument(
+  ctx: CanvasRenderingContext2D,
+  cfg: InstrumentConfig,
+  frame: HandFrame | undefined,
+  w: number,
+  h: number,
+  only?: 0 | 1,
+): void {
   const L = layout(cfg, w / h, frame?.pose);
   const len = L.length * h;
   const px = (u: number) => u * len;
@@ -57,13 +65,15 @@ function drawInstrument(ctx: CanvasRenderingContext2D, cfg: InstrumentConfig, fr
   ctx.strokeStyle = WOOD.edge;
 
   // Pear-shaped body: narrow where the neck joins, widest near the bridge.
+  const n = cfg.neckEnd;
+  const widest = px((n + TAIL_U) / 2 + 0.03);
   ctx.fillStyle = WOOD.body;
   ctx.beginPath();
   ctx.moveTo(neckEnd, -half);
-  ctx.bezierCurveTo(px(0.62), -half, px(0.66), -bw, px(0.82), -bw);
+  ctx.bezierCurveTo(px(n + 0.04), -half, px(n + 0.07), -bw, widest, -bw);
   ctx.bezierCurveTo(px(0.98), -bw, px(TAIL_U), -bw * 0.6, px(TAIL_U), 0);
-  ctx.bezierCurveTo(px(TAIL_U), bw * 0.6, px(0.98), bw, px(0.82), bw);
-  ctx.bezierCurveTo(px(0.66), bw, px(0.62), half, neckEnd, half);
+  ctx.bezierCurveTo(px(TAIL_U), bw * 0.6, px(0.98), bw, widest, bw);
+  ctx.bezierCurveTo(px(n + 0.07), bw, px(n + 0.04), half, neckEnd, half);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
@@ -104,6 +114,9 @@ function drawInstrument(ctx: CanvasRenderingContext2D, cfg: InstrumentConfig, fr
   ctx.fillRect(len - 4, -cfg.stringGapBridge * h, 8, cfg.stringGapBridge * h * 2);
   ctx.strokeStyle = WOOD.string;
   for (const i of [0, 1] as const) {
+    const off = only !== undefined && i !== only;
+    ctx.globalAlpha = off ? 0.25 : 1;
+    ctx.setLineDash(off ? [8, 8] : []);
     ctx.lineWidth = i === 0 ? 3 : 2;
     ctx.beginPath();
     ctx.moveTo(0, stringOffset(i, 0, cfg) * h);
@@ -136,13 +149,13 @@ function drawHandle(ctx: CanvasRenderingContext2D, cfg: InstrumentConfig, frame:
   ctx.restore();
 }
 
-// The point fret detection uses, so the player sees where the system thinks they hold the neck.
-function drawGrip(ctx: CanvasRenderingContext2D, frame: HandFrame, lift: number, w: number, h: number): void {
-  const g = gripPoint(frame.neck!.points, lift);
+// Ring around the palm dot: the point fret detection uses. Blue on a fret, white off the frets.
+function drawGrip(ctx: CanvasRenderingContext2D, frame: HandFrame, w: number, h: number): void {
+  const g = gripPoint(frame.neck!.points);
   ctx.strokeStyle = frame.fret > 0 ? COLORS.neck : "#fff";
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.arc(g.x * w, g.y * h, 10, 0, Math.PI * 2);
+  ctx.arc(g.x * w, g.y * h, 14, 0, Math.PI * 2);
   ctx.stroke();
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { OneEuroFilter } from "../src/p1/oneEuro";
 import { RoleAssigner } from "../src/p1/roles";
 import { FretTracker } from "../src/p1/fret";
-import { MuteDetector, curledFingers } from "../src/p1/mute";
+import { MuteDetector, curledFingers, isFist } from "../src/p1/mute";
 import { P1Engine } from "../src/p1/engine";
 import { cloneInstrument, DEFAULT_INSTRUMENT } from "../src/config";
 import {
@@ -109,9 +109,8 @@ describe("Instrument geometry", () => {
   it("real spacing: frets narrow towards the body, last wire at fretsEnd", () => {
     const w = fretWires({ ...DEFAULT_INSTRUMENT, fretTaper: 1 });
     const width = (k: number) => w[k] - w[k - 1];
-    expect(width(1)).toBeGreaterThan(width(2)); // both whole steps
-    expect(width(4)).toBeGreaterThan(width(5));
-    expect(width(3)).toBeLessThan(width(4)); // half step is narrower
+    for (let k = 2; k <= FRETS; k++) expect(width(k)).toBeLessThan(width(k - 1)); // chromatic: steadily narrower
+    expect(FRETS).toBe(12);
     expect(w[FRETS]).toBeCloseTo(DEFAULT_INSTRUMENT.fretsEnd);
   });
 
@@ -160,8 +159,15 @@ describe("FretTracker", () => {
     expect(hold(f, handAt(L, fretMid(L, 4)))).toBe(4);
   });
 
-  it("switches only after switchFrames frames", () => {
+  it("switches on the first frame past the line by default", () => {
     const f = new FretTracker(cfg);
+    hold(f, handAt(L, fretMid(L, 4)));
+    const w = L.wires[4] - L.wires[3];
+    expect(f.update(handAt(L, L.wires[4] + w * (cfg.hysteresis + 0.05)), ASPECT)).toBe(5); // just past the margin
+  });
+
+  it("with switchFrames > 1 a new fret must hold that long", () => {
+    const f = new FretTracker({ ...cloneInstrument(), switchFrames: 2 });
     hold(f, handAt(L, fretMid(L, 2)));
     expect(f.update(handAt(L, fretMid(L, 5)), ASPECT)).toBe(2);
     expect(f.update(handAt(L, fretMid(L, 5)), ASPECT)).toBe(5);
@@ -172,6 +178,15 @@ describe("Mute", () => {
   it("counts curled fingers", () => {
     expect(curledFingers(makeHand(0.3, 0.5, false))).toBe(0);
     expect(curledFingers(makeHand(0.3, 0.5, true))).toBe(4);
+  });
+
+  it("a hand holding the neck (fingers curled, tips out past the knuckles) is not a fist", () => {
+    const s = 0.1;
+    const grip = makeHand(0.3, 0.5);
+    // Tips curled back below their middle joints (cy - 0.4s), but still above the knuckles (cy).
+    for (const tip of [8, 12, 16, 20]) grip[tip] = { ...grip[tip], y: 0.5 - 0.2 * s };
+    expect(curledFingers(grip)).toBe(0);
+    expect(isFist(grip)).toBe(false);
   });
 
   it("is debounced", () => {
@@ -188,7 +203,7 @@ describe("P1Engine", () => {
   it("mirrors, assigns roles and fills the contract", () => {
     const e = new P1Engine({ aspect: ASPECT });
     const L = layout(e.fret.cfg, ASPECT);
-    const neck = handAt(L, fretMid(L, 2), 0, true); // fingertip on fret 2, fist
+    const neck = handAt(L, fretMid(L, 2), 0, true); // palm on fret 2, fingers folded
     let f = e.process([], 0);
     for (let i = 0; i < 6; i++) {
       f = e.process([raw(makeHand(0.75, 0.5)), raw(neck)], i * 33);
@@ -198,7 +213,22 @@ describe("P1Engine", () => {
     expect(f.neck?.points).toHaveLength(21);
     expect(f.strum?.size).toBeCloseTo(0.1, 2);
     expect(f.fret).toBe(2);
-    expect(f.muted).toBe(true);
+    expect(f.muted).toBe(false); // folded fingers on a fret = pressing it, not muting
+  });
+
+  it("mutes only on a fist away from the frets", () => {
+    const e = new P1Engine({ aspect: ASPECT });
+    const L = layout(e.fret.cfg, ASPECT);
+    const strum = raw(makeHand(0.85, 0.7));
+    let t = 0;
+    const hold = (hand: ReturnType<typeof makeHand>) => {
+      let f = e.process([raw(hand), strum], (t += 33));
+      for (let i = 0; i < 6; i++) f = e.process([raw(hand), strum], (t += 33));
+      return f;
+    };
+    expect(hold(handAt(L, fretMid(L, 5), 0, true))).toMatchObject({ fret: 5, muted: false });
+    expect(hold(handAt(L, fretMid(L, 5), 0.25, true))).toMatchObject({ fret: 0, muted: true }); // fist off the neck
+    expect(hold(handAt(L, fretMid(L, 5), 0.25, false))).toMatchObject({ fret: 0, muted: false }); // open hand off the neck
   });
 
   it("tilts the neck towards the neck hand; fret is still the distance along it", () => {
@@ -253,7 +283,7 @@ describe("P1Engine", () => {
       expect(f.pose?.angle).toBeCloseTo(e.fret.cfg.angle, 5);
       seen.push(f.fret);
     }
-    expect(seen).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(seen).toEqual(Array.from({ length: FRETS }, (_, k) => k + 1));
   });
 
   describe("placing mode", () => {
@@ -351,11 +381,11 @@ describe("P1Engine", () => {
     expect(f.pose?.angle).toBeCloseTo(25, 0);
   });
 
-  it("the neck lies above the knuckles, in the fingers", () => {
-    const h = makeHand(0.3, 0.5); // fingers point up
-    const knuckleY = (h[5].y + h[9].y + h[13].y + h[17].y) / 4;
-    expect(gripPoint(h).y).toBeLessThan(knuckleY);
-    expect(gripPoint(h, 0).y).toBeCloseTo(knuckleY, 5);
+  it("the fret is read at the palm center (the dot drawn on the hand), steady when the fingers curl", () => {
+    const open = makeHand(0.3, 0.5);
+    const fist = makeHand(0.3, 0.5, true);
+    expect(gripPoint(open)).toEqual(palmCenter(open));
+    expect(gripPoint(fist)).toEqual(gripPoint(open));
   });
 
   it("pinch uses depth: tips that only overlap on screen are not a pinch", () => {

@@ -13,8 +13,8 @@ export type HandFrame = {
   t: number; // ms, monotonic
   neck?: HandData; // left-of-screen hand; undefined when not visible
   strum?: HandData; // right-of-screen hand; undefined when not visible
-  fret: number; // 0 = open / no neck hand, 1..6
-  muted: boolean;
+  fret: number; // 0 = open / no neck hand, 1..12 (see FRET_SEMITONES)
+  muted: boolean; // left fist away from the frets (a fist on a fret is just holding the neck)
   pose?: InstrumentPose; // where the dombyra is this frame (tilt follows the neck hand); pass to instrument.layout
   placing?: boolean; // player is positioning the dombyra (button on the page): not playing, ignore strums
   dragging?: boolean; // …and is pinching right now, so the dombyra moves with the strum hand

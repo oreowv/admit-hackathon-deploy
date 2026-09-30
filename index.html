@@ -36,32 +36,31 @@
         </section>
 
         <section>
-          <h2>Запись для P2</h2>
-          <label>Сценарий
-            <select id="rec-label">
-              <option value="slow">Медленные удары вниз/вверх</option>
-              <option value="fast">Быстрые удары</option>
-              <option value="weak">Слабые / короткие удары</option>
-              <option value="lost">Правая рука уходит из кадра</option>
-              <option value="far">Рука слишком далеко</option>
-              <option value="frets-mute">Смена ладов + кулак</option>
-              <option value="free">Свободная запись</option>
-            </select>
-          </label>
-          <label>Длительность
-            <select id="rec-duration">
-              <option value="10000">10 с</option>
-              <option value="30000" selected>30 с</option>
-              <option value="60000">60 с</option>
-            </select>
-          </label>
-          <button id="btn-record" disabled>● Записать</button>
-          <progress id="rec-progress" max="1" value="0"></progress>
+          <h2>Видео</h2>
+          <button id="btn-video" disabled>● Записать видео</button>
+          <div id="clip" class="clip" hidden>
+            <video id="clip-video" controls playsinline></video>
+            <button id="clip-save" class="primary">💾 Сохранить видео</button>
+            <button id="clip-discard">Удалить</button>
+          </div>
         </section>
 
         <section>
           <h2>Домбыра</h2>
           <button id="btn-place">Двигать домбыру</button>
+          <label>Струны
+            <select id="strings">
+              <option value="both">Обе струны</option>
+              <option value="0">Только верхняя (D)</option>
+              <option value="1">Только нижняя (G)</option>
+            </select>
+          </label>
+          <label>Звучание
+            <select id="sustain">
+              <option value="long">Долгое</option>
+              <option value="short">Короткое, как домбыра</option>
+            </select>
+          </label>
           <label class="check"><input id="follow" type="checkbox" /> Гриф за левой рукой</label>
           <label>Наклон <input id="tilt" type="range" min="-10" max="40" step="1" /></label>
           <label>Высота <input id="height" type="range" min="0.25" max="0.8" step="0.01" /></label>

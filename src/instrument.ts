@@ -66,22 +66,18 @@ export function fretAt(u: number, wires: number[]): number {
   return k;
 }
 
-const KNUCKLES = [5, 9, 13, 17];
+const PALM = [0, 5, 9, 13, 17]; // wrist + knuckles
 
-// Where the neck lies in the neck hand: `lift` palm lengths past the knuckle row, towards the
-// fingers, like a real neck resting in the fingers. Built only from wrist and knuckles, which barely
-// move when the wrist turns or the fingers curl, so the neck tilt and the fret stay steady.
-export function gripPoint(points: Vec[], lift = 0.5): Vec {
+// Where the neck hand holds the neck: the palm center, the big dot drawn on the hand. Built only from
+// wrist and knuckles, which barely move when the wrist turns or the fingers curl, so the fret is steady.
+export function gripPoint(points: Vec[]): Vec {
   let x = 0;
   let y = 0;
-  for (const i of KNUCKLES) {
+  for (const i of PALM) {
     x += points[i].x;
     y += points[i].y;
   }
-  x /= KNUCKLES.length;
-  y /= KNUCKLES.length;
-  const w = points[0];
-  return { x: x + (x - w.x) * lift, y: y + (y - w.y) * lift };
+  return { x: x / PALM.length, y: y / PALM.length };
 }
 
 // Where the strum hand pinches: between the thumb and index fingertips.
