@@ -80,6 +80,9 @@ export type StrumConfig = {
   fullSpeed: number; // this speed and above plays at full velocity
   groupMs: number; // crossings in one direction within this window are one strum
   refractoryMs: number; // the same string can't sound twice within this
+  maxGapMs: number; // fast strums blur and the hand drops out for a frame or two: a stroke still counts across a gap this short
+  minTravel: number; // frame heights the pick must have moved in the stroke's direction (within travelMs): a trembling hand doesn't
+  travelMs: number;
 };
 
 export const DEFAULT_STRUM: StrumConfig = {
@@ -90,4 +93,7 @@ export const DEFAULT_STRUM: StrumConfig = {
   fullSpeed: 3,
   groupMs: 120,
   refractoryMs: 70,
+  maxGapMs: 150,
+  minTravel: 0.03,
+  travelMs: 200,
 };

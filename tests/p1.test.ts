@@ -160,6 +160,28 @@ describe("FretTracker", () => {
     expect(hold(f, handAt(L, fretMid(L, 4)))).toBe(4);
   });
 
+  it("bending or turning the wrist does not slide the fret", () => {
+    // The wrist swings ±35° around the knuckles: that used to move the grip ~half a fret along the neck.
+    const turn = (hand: ReturnType<typeof makeHand>, deg: number) => {
+      const k = gripPoint(hand, 0);
+      const a = (deg * Math.PI) / 180;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      // rotate in aspect-corrected space so the hand keeps its shape on screen
+      return hand.map((p) => {
+        const dx = (p.x - k.x) * ASPECT;
+        const dy = p.y - k.y;
+        return { x: k.x + (dx * c - dy * s) / ASPECT, y: k.y + dx * s + dy * c, z: 0 };
+      });
+    };
+    const w = L.wires[3] - L.wires[2];
+    for (const [at, deg] of [[0.2, -35], [0.8, 35]]) {
+      const hand = handAt(L, L.wires[2] + at * w);
+      expect(hold(new FretTracker(cfg), hand)).toBe(3);
+      expect(hold(new FretTracker(cfg), turn(hand, deg))).toBe(3);
+    }
+  });
+
   it("switches only after switchFrames frames", () => {
     const f = new FretTracker(cfg);
     hold(f, handAt(L, fretMid(L, 2)));

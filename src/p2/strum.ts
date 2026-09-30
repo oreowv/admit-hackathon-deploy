@@ -28,6 +28,7 @@ type Group = { dir: Dir; strings: StringId[]; t: number; vel: number; speed: num
 // it's crossed; crossings of one sweep are grouped into a single strum event with the strings it hit.
 export class StrumDetector {
   private prev?: Sample;
+  private history: Sample[] = []; // pick samples of the last travelMs
   private strings: StringState[] = [newString(), newString()];
   private group?: Group;
   private wasMuted = false;
@@ -42,16 +43,23 @@ export class StrumDetector {
     if (frame.muted && !this.wasMuted) out.push({ type: "mute", t: frame.t });
     this.wasMuted = frame.muted;
 
-    // No hand, or the player is positioning the dombyra: never strum across the gap.
-    if (!frame.strum || frame.placing) {
-      this.flush(out);
-      this.prev = undefined;
-      for (const s of this.strings) s.side = 0;
+    // Positioning the dombyra: never strum.
+    if (frame.placing) {
+      this.lose(out);
+      return out;
+    }
+    // Hand gone. A short gap is motion blur mid-strum: keep the stroke, it's matched up when the hand is back.
+    if (!frame.strum) {
+      if (this.prev && frame.t - this.prev.t > this.opts.maxGapMs) this.lose(out);
+      else if (this.group && frame.t - this.group.t > this.opts.groupMs) this.flush(out);
       return out;
     }
 
     const { u, v } = toNeck(pickPoint(frame.strum.points), layout(this.cfg, aspect, frame.pose));
     const cur = { t: frame.t, u, v };
+    if (this.prev && cur.t - this.prev.t > this.opts.maxGapMs) this.lose(out); // too long: never strum across it
+    this.history = this.history.filter((s) => s.t >= cur.t - this.opts.travelMs);
+    this.history.push(cur);
     const hits = ([0, 1] as const).flatMap((i) => this.track(i, cur) ?? []);
     this.prev = cur;
     for (const h of hits.sort((a, b) => a.t - b.t)) this.pluck(h, frame, out);
@@ -61,8 +69,20 @@ export class StrumDetector {
 
   reset(): void {
     this.prev = this.group = undefined;
+    this.history = [];
     this.strings = [newString(), newString()];
     this.wasMuted = false;
+  }
+
+  // Hand lost for good: close the strum, forget where the pick was.
+  private lose(out: GestureEvent[]): void {
+    this.flush(out);
+    this.prev = undefined;
+    this.history = [];
+    for (const s of this.strings) {
+      s.side = 0;
+      s.zero = undefined;
+    }
   }
 
   // Signed distance of the pick from string i (> 0 below it), frame heights.
@@ -99,10 +119,19 @@ export class StrumDetector {
     st.zero = undefined;
     if (!z || z.dir !== (side === 1 ? "down" : "up")) return undefined;
     if (z.speed < this.opts.minSpeed) return undefined;
+    if (this.travel(z.dir, cur) < this.opts.minTravel) return undefined;
     if (z.u < this.opts.zone[0] || z.u > this.opts.zone[1]) return undefined;
     if (z.t - st.lastPluck < this.opts.refractoryMs) return undefined;
     st.lastPluck = z.t;
     return { string: i, ...z };
+  }
+
+  // How far the pick has moved in `dir` within the last travelMs: a real stroke covers ground,
+  // a hand resting on a string only trembles back and forth.
+  private travel(dir: Dir, cur: Sample): number {
+    let best = 0;
+    for (const s of this.history) best = Math.max(best, dir === "down" ? cur.v - s.v : s.v - cur.v);
+    return best;
   }
 
   private pluck(h: Crossing, frame: HandFrame, out: GestureEvent[]): void {

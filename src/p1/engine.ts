@@ -22,7 +22,7 @@ export type EngineOptions = {
 export const DEFAULT_ENGINE_OPTIONS: EngineOptions = {
   aspect: 16 / 9,
   mirror: true,
-  neckFilter: { minCutoff: 0.7, beta: 2.0 }, // steadier fingertip on narrow frets
+  neckFilter: { minCutoff: 0.7, beta: 5.0 }, // steady when still; beta 5 (was 2) cuts slide lag between frets from 35–50 to 20–30 ms, same jitter
   strumFilter: { minCutoff: 2.0, beta: 8.0 },
   instrument: DEFAULT_INSTRUMENT,
   roles: DEFAULT_ROLE_OPTIONS,

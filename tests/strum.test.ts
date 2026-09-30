@@ -120,14 +120,34 @@ describe("StrumDetector", () => {
     expect(of(sweep(d, 0, -0.1, 0.1, 200, { u: 0.3 }), "pluck")).toHaveLength(0);
   });
 
-  it("never strums across a gap where the hand was lost", () => {
+  it("a fast strum still sounds when motion blur drops the hand for a frame or two", () => {
+    for (const gap of [1, 2]) {
+      const d = new StrumDetector(cfg);
+      const evs = [...d.push(frameAt(0, -0.12), ASPECT), ...d.push(frameAt(33, -0.1), ASPECT)];
+      for (let k = 1; k <= gap; k++) evs.push(...d.push(frameAt(33 + k * 33, undefined), ASPECT));
+      const back = 33 + (gap + 1) * 33;
+      evs.push(...d.push(frameAt(back, 0.1), ASPECT), ...d.push(frameAt(back + 33, 0.12), ASPECT));
+      for (let k = 2; k <= 6; k++) evs.push(...d.push(frameAt(back + k * 33, 0.12), ASPECT));
+      expect(of(evs, "pluck").map((e) => e.string)).toEqual([0, 1]);
+      expect(of(evs, "strum")).toHaveLength(1);
+    }
+  });
+
+  it("never strums across a long gap where the hand was lost", () => {
     const d = new StrumDetector(cfg);
     const evs = [
       ...d.push(frameAt(0, -0.1), ASPECT),
       ...d.push(frameAt(33, undefined), ASPECT),
-      ...d.push(frameAt(66, 0.1), ASPECT),
-      ...d.push(frameAt(99, 0.1), ASPECT),
+      ...d.push(frameAt(400, 0.1), ASPECT),
+      ...d.push(frameAt(433, 0.1), ASPECT),
     ];
+    expect(of(evs, "pluck")).toHaveLength(0);
+  });
+
+  it("a hand trembling on a string (bigger than the margin) never sounds", () => {
+    const d = new StrumDetector(cfg);
+    const evs: GestureEvent[] = [];
+    for (let k = 0; k < 90; k++) evs.push(...d.push(frameAt(k * 33, off(0) + (k % 2 ? 0.01 : -0.01)), ASPECT));
     expect(of(evs, "pluck")).toHaveLength(0);
   });
 
