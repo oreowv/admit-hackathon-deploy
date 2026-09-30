@@ -6,8 +6,9 @@ import { FretTracker } from "./fret";
 import { MuteDetector } from "./mute";
 import { NeckAim } from "./aim";
 import { Placement } from "./grab";
+import { PalmsToggle } from "./gesture";
 import { cloneInstrument, DEFAULT_INSTRUMENT, type InstrumentConfig } from "../config";
-import { gripPoint } from "../instrument";
+import { gripPoint, layout, toNeck } from "../instrument";
 
 export type EngineOptions = {
   aspect: number; // video width / height
@@ -40,6 +41,7 @@ export class P1Engine {
   private mute: MuteDetector;
   readonly grab: Placement; // the page's "move dombyra" button toggles grab.enabled
   private aim: NeckAim;
+  private palms = new PalmsToggle();
   private neckSmoother: LandmarkSmoother;
   private strumSmoother: LandmarkSmoother;
   private lastT = -Infinity;
@@ -63,7 +65,13 @@ export class P1Engine {
     const hands = rawHands
       .filter((h) => h.length === 21)
       .map((h) => (this.opts.mirror ? h.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) : h));
-    const { neck, strum } = this.roles.assign(hands, t);
+    // A new hand's role comes from where it is on the dombyra: along the neck or over the body.
+    const cfg = this.fret.cfg;
+    const L = layout(cfg, this.opts.aspect, { angle: this.aim.value, pivot: cfg.pivot });
+    const { neck, strum } = this.roles.assign(hands, t, {
+      along: (p) => toNeck(p, L).u,
+      split: (cfg.fretsEnd + cfg.neckEnd) / 2,
+    });
 
     const neckData = this.toHandData(neck, this.neckSmoother, t);
     const strumData = this.toHandData(strum, this.strumSmoother, t);
@@ -86,7 +94,15 @@ export class P1Engine {
       pose,
       placing: this.grab.enabled,
       dragging,
+      turning: this.grab.turning,
+      ...this.palmsGesture(neckData, strumData, t),
     };
+  }
+
+  // Both open palms held still: progress for the on-screen ring, and `toggle` once when it completes.
+  private palmsGesture(neck: HandData | undefined, strum: HandData | undefined, t: number): Partial<HandFrame> {
+    const g = this.palms.update(neck, strum, t, this.opts.aspect);
+    return { ...(g.progress > 0 && { palmsHold: g.progress }), ...(g.toggle && { toggle: true }) };
   }
 
   setAspect(aspect: number): void {
@@ -99,6 +115,7 @@ export class P1Engine {
     this.mute.reset();
     this.aim.reset();
     this.grab.reset();
+    this.palms.reset();
     this.neckSmoother.reset();
     this.strumSmoother.reset();
     this.lastT = -Infinity;

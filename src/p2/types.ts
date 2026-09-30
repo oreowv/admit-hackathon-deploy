@@ -9,7 +9,7 @@ export type GestureEvent =
   // `midi`: the note it plays, from string, fret and the current tuning.
   | { type: "pluck"; string: StringId; fret: number; midi: number; vel: number; muted: boolean; first: boolean; t: number }
   // One sweep of the strum hand: the strings it hit, in order. [0] or [1] = single string, [0, 1] / [1, 0] = both.
-  | { type: "strum"; dir: Dir; strings: StringId[]; vel: number; speed: number; fret: number; t: number }
+  | { type: "strum"; dir: Dir; strings: StringId[]; vel: number; speed: number; fret: number; muted: boolean; t: number }
   | { type: "mute"; t: number }
   // A string line was crossed but it didn't count, and why: too slow, outside the strum zone, or a repeat.
   | { type: "reject"; string: StringId; reason: "slow" | "zone" | "repeat"; t: number }

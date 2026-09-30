@@ -11,6 +11,7 @@ import {
   fromNeck,
   gripPoint,
   handlePoint,
+  turnPoint,
   layout,
   stringLine,
   toNeck,
@@ -94,6 +95,53 @@ describe("RoleAssigner", () => {
     expect(r.assign([makeHand(0.8, 0.5)], 0).strum).toBeDefined();
     const r2 = new RoleAssigner();
     expect(r2.assign([makeHand(0.2, 0.5)], 0).neck).toBeDefined();
+  });
+
+  it("one hand reported twice (a MediaPipe duplicate) is one hand, not both roles", () => {
+    const r = new RoleAssigner();
+    r.assign([makeHand(0.7, 0.5)], 0); // the right hand alone: strum
+    const a = makeHand(0.4, 0.5);
+    const b = makeHand(0.405, 0.502); // same hand, detected twice, now left of center
+    const out = r.assign([a, b], 400); // memory expired, both "new"
+    expect([out.neck, out.strum].filter(Boolean)).toHaveLength(1);
+  });
+
+  it("roles stick while tracked, even when the hands cross over", () => {
+    const r = new RoleAssigner();
+    let n = 0.3;
+    let s = 0.7;
+    r.assign([makeHand(n, 0.5), makeHand(s, 0.6)], 0);
+    let out = r.assign([], 0);
+    for (let t = 33; t <= 33 * 20; t += 33) {
+      n += 0.03; // neck hand drifts right…
+      s -= 0.03; // …strum hand drifts left, past each other
+      const hn = makeHand(n, 0.5);
+      const hs = makeHand(s, 0.6);
+      out = r.assign([hs, hn], t);
+      expect(out.neck).toBe(hn);
+      expect(out.strum).toBe(hs);
+    }
+  });
+
+  it("a new hand takes the free role: the right hand alone stays strum when the left one appears", () => {
+    const r = new RoleAssigner();
+    const right = makeHand(0.6, 0.5);
+    expect(r.assign([right], 0).strum).toBe(right);
+    // The left hand comes in even further right on screen: the free role is the neck, so it gets that.
+    const left = makeHand(0.85, 0.4);
+    const right2 = makeHand(0.61, 0.5);
+    const out = r.assign([left, right2], 33);
+    expect(out.strum).toBe(right2);
+    expect(out.neck).toBe(left);
+  });
+
+  it("a lone new hand's role comes from where it is on the dombyra, not the screen side", () => {
+    const L = layout(DEFAULT_INSTRUMENT, ASPECT);
+    const place = { along: (p: { x: number; y: number }) => toNeck(p, L).u, split: 0.6 };
+    const onBody = fromNeck(0.85, 0, L); // over the strings: strum hand, wherever that is on screen
+    const onNeck = fromNeck(0.3, 0, L);
+    expect(new RoleAssigner().assign([makeHand(onBody.x, onBody.y)], 0, place).strum).toBeDefined();
+    expect(new RoleAssigner().assign([makeHand(onNeck.x, onNeck.y)], 0, place).neck).toBeDefined();
   });
 });
 
@@ -351,18 +399,23 @@ describe("P1Engine", () => {
     expect(f.pose?.angle).toBe(cfg.angle);
   });
 
-  it("placing mode: a left-hand pinch turns the neck like a dial; it stays after release", () => {
+  it("placing mode: a left-hand pinch on the neck ring turns the dombyra; it stays after release", () => {
     const e = new P1Engine({ aspect: ASPECT });
     const cfg = e.fret.cfg;
     e.grab.enabled = true;
     const strum = raw(openHandAt({ x: 0.85, y: 0.8 }));
-    // Left palm at a given bearing around the pivot, 0.5 frame heights away.
+    const ring = turnPoint(layout(cfg, ASPECT));
+    // Left hand pinching at the ring, swung `deg` degrees around the pivot (the body).
     const leftAt = (deg: number, pinch: boolean) => {
-      const a = (deg * Math.PI) / 180;
-      const palm = { x: cfg.pivot.x - (0.5 * Math.cos(a)) / ASPECT, y: cfg.pivot.y - 0.5 * Math.sin(a) };
-      const h = strumHandAt({ x: 0, y: 0 }, pinch);
-      const c = palmCenter(h);
-      return raw(h.map((p) => ({ ...p, x: p.x + palm.x - c.x, y: p.y + palm.y - c.y })));
+      const a = (deg * Math.PI) / 180; // screen y is down: this turns the hand up, around the body
+      const [c, s] = [Math.cos(a), Math.sin(a)];
+      return raw(
+        strumHandAt(ring, pinch).map((p) => {
+          const dx = (p.x - cfg.pivot.x) * ASPECT;
+          const dy = p.y - cfg.pivot.y;
+          return { x: cfg.pivot.x + (dx * c - dy * s) / ASPECT, y: cfg.pivot.y + dx * s + dy * c, z: 0 };
+        }),
+      );
     };
     let t = 0;
     const run = (hand: ReturnType<typeof raw>, n = 20) => {
@@ -371,14 +424,28 @@ describe("P1Engine", () => {
       return f;
     };
 
-    run(leftAt(30, true)); // pinch: starts the twist, no jump
-    expect(cfg.angle).toBeCloseTo(15, 1);
-    let f = run(leftAt(40, true)); // swing the palm 10° up
-    expect(f.dragging).toBe(true);
+    let f = run(leftAt(0, true)); // pinch the ring: starts the turn, no jump
+    expect(f.turning).toBe(true);
+    expect(f.pose?.angle).toBeCloseTo(15, 1);
+    f = run(leftAt(10, true)); // swing the hand 10° up around the body
     expect(f.pose?.angle).toBeCloseTo(25, 0);
-    f = run(leftAt(40, false)); // release
+    f = run(leftAt(10, false)); // release
     expect(f.dragging).toBe(false);
     expect(f.pose?.angle).toBeCloseTo(25, 0);
+  });
+
+  it("placing mode: pinches outside the rings do nothing", () => {
+    const e = new P1Engine({ aspect: ASPECT });
+    const cfg = e.fret.cfg;
+    e.grab.enabled = true;
+    const L = layout(cfg, ASPECT);
+    const start = { pivot: { ...cfg.pivot }, angle: cfg.angle };
+    const left = raw(strumHandAt(fromNeck(0.05, 0, L), true)); // near the head, not the neck ring
+    const right = raw(strumHandAt(fromNeck(1.05, 0, L), true)); // at the tail, not the body ring
+    let f = e.process([left, right], 0);
+    for (let i = 1; i < 10; i++) f = e.process([left, right], i * 33);
+    expect(f.dragging).toBe(false);
+    expect(f.pose).toEqual(start);
   });
 
   it("the fret is read at the palm center (the dot drawn on the hand), steady when the fingers curl", () => {

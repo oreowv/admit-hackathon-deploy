@@ -1,7 +1,7 @@
 import { FRET_SEMITONES, type InstrumentConfig, type InstrumentPose, type Vec } from "./config";
 
 export const FRETS = FRET_SEMITONES.length - 1;
-export const TAIL_U = 1.08; // far end of the body, where the grab handle is
+export const TAIL_U = 1.08; // far end of the body
 
 // The instrument placed on screen. Neck coords: u runs from 0 at the nut to 1 at the bridge,
 // v is the signed distance from the centre line in frame heights (> 0 is below it).
@@ -85,7 +85,12 @@ export function pinchPoint(points: Vec[]): Vec {
   return { x: (points[4].x + points[8].x) / 2, y: (points[4].y + points[8].y) / 2 };
 }
 
-// Grab handle for placing mode: the tail of the body.
+// Placing mode handles. Move: the center of the body, where the right hand pinches to drag the dombyra.
 export function handlePoint(L: Layout): Vec {
-  return fromNeck(TAIL_U, 0, L);
+  return fromNeck((L.cfg.neckEnd + TAIL_U) / 2, 0, L);
+}
+
+// Turn: the middle of the neck, where the left hand pinches to swing the neck around the body.
+export function turnPoint(L: Layout): Vec {
+  return fromNeck(L.cfg.neckEnd / 2, 0, L);
 }

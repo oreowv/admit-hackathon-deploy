@@ -1,4 +1,5 @@
 import * as Tone from "tone";
+import { FRET_SEMITONES } from "../config";
 import type { GestureEvent } from "./types";
 
 const SAMPLES = `${import.meta.env.BASE_URL}samples/`;
@@ -7,33 +8,55 @@ const SAMPLES = `${import.meta.env.BASE_URL}samples/`;
 // percussive decay.
 export type Sustain = "long" | "short";
 const SHORT_S = 0.5;
+const OPEN_RANGE = 4; // frets (semitones) that still use the open-string recording
+// Recordings above this come from a guitar's thin top strings: thin and short, unlike the dombyra's two
+// thick gut strings. High frets pitch up a warmer lower recording instead (at most ~6 semitones).
+const WARM_MAX = 63;
 const SECOND_STRING_MS: [number, number] = [10, 25]; // gap between the two strings of one strum
 
 // One string's voice. Each string is monophonic like a real one: a new pluck replaces what it rang.
 interface Voice {
-  play(midi: number, vel: number, muted: boolean, time: number, length?: number): void;
+  play(midi: number, open: number, vel: number, muted: boolean, time: number, length?: number): void;
   stop(time: number): void;
 }
 
 // Recorded plucks (public/samples, see scripts/prepare-samples.mjs), repitched by Tone.Sampler to any fret.
 class SampleVoice implements Voice {
-  private sampler: Tone.Sampler;
+  private src?: Tone.ToneBufferSource;
 
-  constructor(buffers: Tone.ToneAudioBuffers, notes: string[], out: Tone.InputNode) {
-    const urls = Object.fromEntries(notes.map((n) => [n, buffers.get(n)]));
-    this.sampler = new Tone.Sampler({ urls, release: 0.12 }).connect(out);
-  }
+  // `samples`: midi → recorded pluck.
+  constructor(
+    private samples: Map<number, Tone.ToneAudioBuffer>,
+    private out: Tone.InputNode,
+  ) {}
 
-  play(midi: number, vel: number, muted: boolean, time: number, length?: number): void {
-    this.sampler.releaseAll(time); // re-striking a string stops its previous note
-    const note = Tone.Frequency(midi, "midi").toNote();
-    if (muted) this.sampler.triggerAttackRelease(note, 0.05, time, vel * 0.6); // left fist on the strings: dead "chk"
-    else if (length) this.sampler.triggerAttackRelease(note, length, time, vel);
-    else this.sampler.triggerAttack(note, time, vel);
+  play(midi: number, open: number, vel: number, muted: boolean, time: number, length?: number): void {
+    this.stop(time); // re-striking a string stops its previous note
+    // Low frets replay the string's own open recording, so they share its timbre; higher up that would
+    // mean pitching one recording too far (faster decay, shifted tone: sounds artificial), so they use
+    // the nearest real recording instead, shifted at most a semitone.
+    const base = midi - open <= OPEN_RANGE ? this.nearest(open) : this.nearest(midi, WARM_MAX);
+    const src = new Tone.ToneBufferSource({
+      url: this.samples.get(base)!,
+      playbackRate: 2 ** ((midi - base) / 12),
+      fadeOut: 0.08,
+    }).connect(this.out);
+    src.onended = () => src.dispose();
+    src.start(time, 0, undefined, muted ? vel * 0.6 : vel);
+    if (muted) src.stop(time + 0.05); // left fist on the strings: dead "chk"
+    else if (length) src.stop(time + length);
+    this.src = src;
   }
 
   stop(time: number): void {
-    this.sampler.releaseAll(time);
+    if (this.src?.state === "started") this.src.stop(time);
+  }
+
+  private nearest(midi: number, max = Infinity): number {
+    const keys = [...this.samples.keys()].filter((m) => m <= max);
+    let best = keys[0] ?? [...this.samples.keys()][0];
+    for (const m of keys) if (Math.abs(m - midi) < Math.abs(best - midi)) best = m;
+    return best;
   }
 }
 
@@ -47,7 +70,7 @@ class SynthVoice implements Voice {
     this.gain.connect(out);
   }
 
-  play(midi: number, vel: number, muted: boolean, time: number, length?: number): void {
+  play(midi: number, _open: number, vel: number, muted: boolean, time: number, length?: number): void {
     this.gain.gain.setValueAtTime(vel * (muted ? 0.5 : 1), time);
     this.synth.triggerAttack(Tone.Frequency(midi, "midi").toFrequency(), time);
     if (muted) this.synth.triggerRelease(time + 0.04);
@@ -137,7 +160,8 @@ export class DombyraAudio {
         time = Math.max(now, this.sweep.at + Math.min(hi, Math.max(lo, ev.t - this.sweep.t)) / 1000);
       }
       const length = this._sustain === "short" ? SHORT_S : undefined;
-      this.voices[ev.string].play(ev.midi, ev.vel, ev.muted, time, length);
+      const open = ev.midi - FRET_SEMITONES[Math.min(ev.fret, FRET_SEMITONES.length - 1)];
+      this.voices[ev.string].play(ev.midi, open, ev.vel, ev.muted, time, length);
     } else if (ev.type === "mute") {
       for (const v of this.voices) v.stop(now);
     }
@@ -150,8 +174,8 @@ export class DombyraAudio {
       const buffers = await new Promise<Tone.ToneAudioBuffers>((resolve, reject) => {
         const b = new Tone.ToneAudioBuffers({ urls: notes, baseUrl: SAMPLES, onload: () => resolve(b), onerror: reject });
       });
-      const names = Object.keys(notes);
-      this.voices = [new SampleVoice(buffers, names, out), new SampleVoice(buffers, names, out)];
+      const samples = new Map(Object.keys(notes).map((n) => [Tone.Frequency(n).toMidi(), buffers.get(n)]));
+      this.voices = [new SampleVoice(samples, out), new SampleVoice(samples, out)];
     } catch (e) {
       console.warn("[audio] samples unavailable, staying on the synth", e);
     }

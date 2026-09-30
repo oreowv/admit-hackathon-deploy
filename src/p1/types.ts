@@ -17,7 +17,10 @@ export type HandFrame = {
   muted: boolean; // left fist away from the frets (a fist on a fret is just holding the neck)
   pose?: InstrumentPose; // where the dombyra is this frame (tilt follows the neck hand); pass to instrument.layout
   placing?: boolean; // player is positioning the dombyra (button on the page): not playing, ignore strums
-  dragging?: boolean; // …and is pinching right now, so the dombyra moves with the strum hand
+  dragging?: boolean; // …and is pinching a ring right now, so the dombyra moves or turns
+  palmsHold?: number; // 0..1 while both open palms are held still (the move-mode gesture)
+  toggle?: boolean; // that hold just completed: toggle move mode
+  turning?: boolean; // the pinch is the left hand's, on the neck ring: the dombyra turns (else it moves)
 };
 
 export type Recording = {

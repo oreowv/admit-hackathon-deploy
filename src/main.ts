@@ -11,6 +11,7 @@ import {
 import { DombyraAudio, StrumDetector, StrumFx, noteName } from "./p2";
 import { DEFAULT_TUNING, TUNINGS, type TuningName } from "./config";
 import { VideoCapture, saveClip, type Clip } from "./capture";
+import { LessonUi } from "./lesson/ui";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -25,6 +26,8 @@ const ui = {
   fret: $("fret"),
   mute: $("mute"),
   message: $("message"),
+  help: $<HTMLDialogElement>("help"),
+  toast: $("toast"),
   btnCamera: $<HTMLButtonElement>("btn-camera"),
   fileReplay: $<HTMLInputElement>("file-replay"),
   btnVideo: $<HTMLButtonElement>("btn-video"),
@@ -157,6 +160,27 @@ function useReplay(rec: Recording, name: string): void {
 
 ui.btnCamera.addEventListener("click", useCamera);
 
+// Learning mode: songs in the sidebar, one note at a time on the stage.
+const lessons = new LessonUi({
+  tuning: () => strum.tuning,
+  ensureCamera: async () => {
+    if (mode !== "camera") await useCamera();
+  },
+  // One-string exercises switch the other string off; leaving restores the player's own choice.
+  setOnly: (only) => {
+    if (only === undefined) setStrings(ui.strings.value);
+    else strum.only = only;
+  },
+});
+ui.tuning.addEventListener("change", () => lessons.renderSongs());
+
+// Gesture guide: header button, sidebar button; closes on ✕, Esc, or a click outside it.
+for (const id of ["btn-help", "btn-help2"]) $(id).addEventListener("click", () => ui.help.showModal());
+$("help-close").addEventListener("click", () => ui.help.close());
+ui.help.addEventListener("click", (e) => {
+  if (e.target === ui.help) ui.help.close();
+});
+
 ui.fileReplay.addEventListener("change", async () => {
   const file = ui.fileReplay.files?.[0];
   if (!file) return;
@@ -186,7 +210,7 @@ function showClip(c: Clip | undefined): void {
 ui.btnVideo.addEventListener("click", async () => {
   if (capture.recording) {
     ui.btnVideo.disabled = true;
-    ui.btnVideo.textContent = "Сохраняю…";
+    ui.btnVideo.innerHTML = '<span class="spinner" aria-hidden="true"></span>Сохраняю видео…';
     try {
       showClip(await capture.stop());
       ui.message.textContent = "";
@@ -257,18 +281,17 @@ ui.height.addEventListener("input", () => {
 });
 
 // Click → right pinch on the tail moves, left pinch turns → click again to lock and remember it.
-ui.btnPlace.addEventListener("click", () => {
+// Move mode on/off: the button, or both open palms held still for a second (frame.toggle).
+function togglePlacing(): void {
   const placing = (engine.grab.enabled = !engine.grab.enabled);
   ui.btnPlace.classList.toggle("recording", placing);
   ui.btnPlace.textContent = placing ? "🔒 Зафиксировать" : "Двигать домбыру";
-  ui.message.textContent = placing
-    ? "Правая рука: щипок на кружке у хвоста — двигать. Левая рука: щипок и поворот — наклон"
-    : "";
   if (!placing) {
     savePose();
     syncSliders();
   }
-});
+}
+ui.btnPlace.addEventListener("click", togglePlacing);
 
 // ---- per-frame UI --------------------------------------------------------
 
@@ -277,16 +300,56 @@ let fpsWindowStart = performance.now();
 
 bus.subscribe((f: HandFrame) => {
   frameCount++;
+  if (f.toggle && mode === "camera") togglePlacing();
   // Straight from the frame callback to the synth: no rAF or React in between.
   for (const ev of strum.push(f, canvas.width / canvas.height)) {
     audio.handle(ev);
     fx.handle(ev, performance.now());
+    lessons.handle(ev);
   }
 });
 
+// Top-of-stage hint: how to use placing mode, or which hand to bring into view. A hand counts as gone
+// after HAND_LOST_MS, so a frame or two of lost tracking doesn't make it flicker.
+const HAND_LOST_MS = 500;
+let neckSeen = 0;
+let strumSeen = 0;
+let toastHtml = "";
+
+function updateToast(f: HandFrame | undefined, now: number): void {
+  if (f?.neck) neckSeen = now;
+  if (f?.strum) strumSeen = now;
+  const noNeck = now - neckSeen > HAND_LOST_MS;
+  const noStrum = now - strumSeen > HAND_LOST_MS;
+  let html = "";
+  if (f?.palmsHold) {
+    const pct = Math.round(f.palmsHold * 100);
+    html =
+      `<span class="t-ic t-hold" style="--p:${pct}%">✋</span>` +
+      `<span>Держите обе ладони… ${engine.grab.enabled ? "зафиксирую домбыру" : "включу перемещение"}</span>`;
+  } else if (engine.grab.enabled) {
+    html =
+      '<span class="t-ic t-strum">✥</span><span>Правая: щипок в кружке на корпусе — двигать</span>' +
+      '<span class="t-sep"></span><span class="t-ic t-neck">⟲</span><span>Левая: щипок в кружке на грифе — поворот</span>' +
+      '<span class="t-sep"></span><span>✋✋ 1 с — готово</span>';
+  } else if (mode === "camera" && noNeck && noStrum) {
+    html = '<span class="dot dot-neck"></span><span class="dot dot-strum"></span><span>Покажите обе руки: левую — на гриф, правую — к струнам</span>';
+  } else if (mode === "camera" && noNeck) {
+    html = '<span class="dot dot-neck"></span><span>Левая рука вне кадра — верните её на гриф</span>';
+  } else if (mode === "camera" && noStrum) {
+    html = '<span class="dot dot-strum"></span><span>Правая рука вне кадра — верните её к струнам</span>';
+  }
+  if (html !== toastHtml) {
+    toastHtml = html;
+    ui.toast.innerHTML = html; // fixed strings only
+    ui.toast.hidden = !html;
+  }
+}
+
 function render(): void {
   const f = bus.latest;
-  drawOverlay(ctx, f, mode === "camera" ? video : null, instrument, strum.only);
+  updateToast(f, performance.now());
+  drawOverlay(ctx, f, mode === "camera" ? video : null, instrument, strum.only, lessons.target);
   fx.draw(ctx, f, instrument, performance.now());
 
   ui.fret.textContent = String(f?.fret ?? 0);

@@ -1,2 +1,22 @@
-node_modules
-dist
+# dependencies and build output
+node_modules/
+dist/
+.vite/
+coverage/
+
+# environment and deploy
+.env
+.env.*
+!.env.example
+.vercel/
+
+# logs
+*.log
+npm-debug.log*
+
+# editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

@@ -22,7 +22,7 @@ type StringState = {
   lastPluck: number;
 };
 
-type Group = { dir: Dir; strings: StringId[]; t: number; vel: number; speed: number; fret: number };
+type Group = { dir: Dir; strings: StringId[]; t: number; vel: number; speed: number; fret: number; muted: boolean };
 
 // HandFrames → pluck / strum / mute events.
 // Works in neck coords (see instrument.ts), so it follows wherever the dombyra is placed and tilted.
@@ -134,7 +134,7 @@ export class StrumDetector {
       this.group.vel = Math.max(this.group.vel, vel);
       this.group.speed = Math.max(this.group.speed, h.speed);
     } else {
-      this.group = { dir: h.dir, strings: [h.string], t: h.t, vel, speed: h.speed, fret: frame.fret };
+      this.group = { dir: h.dir, strings: [h.string], t: h.t, vel, speed: h.speed, fret: frame.fret, muted: frame.muted };
     }
     const first = this.group.strings.length === 1;
     const midi = midiFor(h.string, frame.fret, this.tuning);
@@ -147,7 +147,7 @@ export class StrumDetector {
     const g = this.group;
     if (!g) return;
     this.group = undefined;
-    out.push({ type: "strum", dir: g.dir, strings: g.strings, vel: g.vel, speed: g.speed, fret: g.fret, t: g.t });
+    out.push({ type: "strum", dir: g.dir, strings: g.strings, vel: g.vel, speed: g.speed, fret: g.fret, muted: g.muted, t: g.t });
     if (g.speed < this.opts.weakSpeed) out.push({ type: "technique", issue: "weak", t: g.t });
   }
 

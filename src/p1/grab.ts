@@ -1,16 +1,16 @@
 import type { HandData } from "./types";
 import type { InstrumentConfig, Vec } from "../config";
 import { dist } from "./geometry";
-import { handlePoint, layout, pinchPoint } from "../instrument";
+import { handlePoint, layout, pinchPoint, turnPoint } from "../instrument";
 
 const DEG = 180 / Math.PI;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 // Placing mode (toggled by a button on the page):
-//  - the right hand pinches the tail of the body and drags the dombyra;
-//  - the left hand pinches anywhere and turns the neck around the body, like a dial.
-// Releasing leaves it where it is; the button then locks it. Outside placing mode pinches do nothing,
-// so pinches while playing never move it.
+//  - the right hand pinches the ring in the middle of the body and drags the dombyra;
+//  - the left hand pinches the ring in the middle of the neck and swings the neck around the body.
+// Each only starts inside its own ring. Releasing leaves it where it is; the button then locks it.
+// Outside placing mode pinches do nothing, so pinches while playing never move it.
 export class Placement {
   enabled = false;
   private right: Pinch;
@@ -23,19 +23,27 @@ export class Placement {
     this.left = new Pinch(cfg);
   }
 
-  // Moving or turning right now.
-  get dragging(): boolean {
-    return this.offset !== undefined || this.twist !== undefined;
+  get moving(): boolean {
+    return this.offset !== undefined;
   }
 
-  // Moves cfg.pivot and turns cfg.angle. `angle` is the current tilt, to find the tail.
+  get turning(): boolean {
+    return this.twist !== undefined;
+  }
+
+  // Moving or turning right now.
+  get dragging(): boolean {
+    return this.moving || this.turning;
+  }
+
+  // Moves cfg.pivot and turns cfg.angle. `angle` is the current tilt, to find the rings.
   update(neck: HandData | undefined, strum: HandData | undefined, angle: number, aspect: number): boolean {
     if (!this.enabled) {
       this.reset();
       return false;
     }
     this.move(strum, angle, aspect);
-    this.turn(neck, aspect);
+    this.turn(neck, angle, aspect);
     return this.dragging;
   }
 
@@ -55,8 +63,8 @@ export class Placement {
     }
     const pivot = this.cfg.pivot;
     if (started) {
-      const tail = handlePoint(layout(this.cfg, aspect, { angle, pivot }));
-      if (dist(pinchPoint(hand.points), tail, aspect) <= this.cfg.grabRadius) {
+      const ring = handlePoint(layout(this.cfg, aspect, { angle, pivot }));
+      if (dist(pinchPoint(hand.points), ring, aspect) <= this.cfg.grabRadius) {
         this.offset = { x: pivot.x - hand.palm.x, y: pivot.y - hand.palm.y };
       }
     }
@@ -67,14 +75,19 @@ export class Placement {
   }
 
   // The neck turns by as much as the left palm swings around the body: relative, so it never jumps.
-  private turn(hand: HandData | undefined, aspect: number): void {
+  private turn(hand: HandData | undefined, angle: number, aspect: number): void {
     const started = hand ? this.left.update(hand, aspect) : this.left.reset();
     if (!hand || !this.left.pinched) {
       this.twist = undefined;
       return;
     }
     const bearing = this.bearing(hand.palm, aspect);
-    if (started) this.twist = { from: bearing, angle: this.cfg.angle };
+    if (started) {
+      const ring = turnPoint(layout(this.cfg, aspect, { angle, pivot: this.cfg.pivot }));
+      if (dist(pinchPoint(hand.points), ring, aspect) <= this.cfg.grabRadius) {
+        this.twist = { from: bearing, angle: this.cfg.angle };
+      }
+    }
     if (this.twist) {
       this.cfg.angle = clamp(this.twist.angle + bearing - this.twist.from, this.cfg.minAngle, this.cfg.maxAngle);
     }
