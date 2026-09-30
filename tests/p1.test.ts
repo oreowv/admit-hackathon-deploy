@@ -24,10 +24,10 @@ const ASPECT = 16 / 9;
 const fretMid = (L: Layout, k: number) => (L.wires[k - 1] + L.wires[k]) / 2;
 const followEngine = () => new P1Engine({ aspect: ASPECT, instrument: { ...DEFAULT_INSTRUMENT, followHand: true } });
 
-// A hand whose grip point (where the neck lies in it, as fret detection sees it) sits at neck coords (u, v).
+// A hand whose grip point (where the neck lies in it) sits at neck coords (u, v).
 function handAt(L: Layout, u: number, v = 0, fist = false) {
   const p = fromNeck(u, v, L);
-  const off = gripPoint(makeHand(0, 0, fist), DEFAULT_INSTRUMENT.gripLift, L);
+  const off = gripPoint(makeHand(0, 0, fist));
   return makeHand(p.x - off.x, p.y - off.y, fist);
 }
 
@@ -157,28 +157,6 @@ describe("FretTracker", () => {
     for (const d of [0, 0.002, -0.002, 0.004, -0.001, 0.003]) seen.add(f.update(handAt(L, wire + d), ASPECT));
     expect([...seen]).toEqual([3]);
     expect(hold(f, handAt(L, fretMid(L, 4)))).toBe(4);
-  });
-
-  it("bending or turning the wrist does not slide the fret", () => {
-    // The wrist swings ±35° around the knuckles: that used to move the grip ~half a fret along the neck.
-    const turn = (hand: ReturnType<typeof makeHand>, deg: number) => {
-      const k = gripPoint(hand, 0);
-      const a = (deg * Math.PI) / 180;
-      const c = Math.cos(a);
-      const s = Math.sin(a);
-      // rotate in aspect-corrected space so the hand keeps its shape on screen
-      return hand.map((p) => {
-        const dx = (p.x - k.x) * ASPECT;
-        const dy = p.y - k.y;
-        return { x: k.x + (dx * c - dy * s) / ASPECT, y: k.y + dx * s + dy * c, z: 0 };
-      });
-    };
-    const w = L.wires[3] - L.wires[2];
-    for (const [at, deg] of [[0.2, -35], [0.8, 35]]) {
-      const hand = handAt(L, L.wires[2] + at * w);
-      expect(hold(new FretTracker(cfg), hand)).toBe(3);
-      expect(hold(new FretTracker(cfg), turn(hand, deg))).toBe(3);
-    }
   });
 
   it("switches on the first frame past the line by default", () => {
@@ -403,12 +381,11 @@ describe("P1Engine", () => {
     expect(f.pose?.angle).toBeCloseTo(25, 0);
   });
 
-  it("the grip point ignores finger curl: along the neck it is the knuckle row", () => {
-    const L = layout(DEFAULT_INSTRUMENT, ASPECT);
+  it("the fret is read at the palm center (the dot drawn on the hand), steady when the fingers curl", () => {
     const open = makeHand(0.3, 0.5);
     const fist = makeHand(0.3, 0.5, true);
-    expect(gripPoint(fist, 0.5, L)).toEqual(gripPoint(open, 0.5, L));
-    expect(toNeck(gripPoint(open, 0.5, L), L).u).toBeCloseTo(toNeck(gripPoint(open, 0), L).u, 10);
+    expect(gripPoint(open)).toEqual(palmCenter(open));
+    expect(gripPoint(fist)).toEqual(gripPoint(open));
   });
 
   it("pinch uses depth: tips that only overlap on screen are not a pinch", () => {

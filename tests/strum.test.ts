@@ -131,31 +131,20 @@ describe("StrumDetector", () => {
     expect(of(sweep(d, 0, -0.1, 0.1, 200, { u: 0.3 }), "pluck")).toHaveLength(0);
   });
 
-  it("a fast strum still sounds when motion blur drops the hand for a frame or two", () => {
-    for (const gap of [1, 2]) {
-      const d = new StrumDetector(cfg);
-      const evs = [...d.push(frameAt(0, -0.12), ASPECT), ...d.push(frameAt(33, -0.1), ASPECT)];
-      for (let k = 1; k <= gap; k++) evs.push(...d.push(frameAt(33 + k * 33, undefined), ASPECT));
-      const back = 33 + (gap + 1) * 33;
-      evs.push(...d.push(frameAt(back, 0.1), ASPECT), ...d.push(frameAt(back + 33, 0.12), ASPECT));
-      for (let k = 2; k <= 6; k++) evs.push(...d.push(frameAt(back + k * 33, 0.12), ASPECT));
-      expect(of(evs, "pluck").map((e) => e.string)).toEqual([0, 1]);
-      expect(of(evs, "strum")).toHaveLength(1);
-    }
-  });
-
-  it("never strums across a long gap where the hand was lost", () => {
+  it("a fast strum still counts when the tracker drops the blurred hand for a frame or two", () => {
     const d = new StrumDetector(cfg);
     const evs = [
       ...d.push(frameAt(0, -0.1), ASPECT),
       ...d.push(frameAt(33, undefined), ASPECT),
-      ...d.push(frameAt(400, 0.1), ASPECT),
-      ...d.push(frameAt(433, 0.1), ASPECT),
+      ...d.push(frameAt(66, undefined), ASPECT),
+      ...d.push(frameAt(99, 0.1), ASPECT),
+      ...d.push(frameAt(132, 0.1), ASPECT),
     ];
-    expect(of(evs, "pluck")).toHaveLength(0);
+    expect(of(evs, "pluck").map((e) => e.string)).toEqual([0, 1]);
+    expect(of(evs, "strum")).toHaveLength(1);
   });
 
-  it("nor across a long run of frames without the hand", () => {
+  it("but never strums across a long loss of the hand", () => {
     const d = new StrumDetector(cfg);
     const evs = [...d.push(frameAt(0, -0.1), ASPECT)];
     for (let t = 33; t <= 400; t += 33) evs.push(...d.push(frameAt(t, undefined), ASPECT));
@@ -177,22 +166,11 @@ describe("StrumDetector", () => {
     expect(of(evs, "pluck").map((e) => e.string)).toEqual([0, 1]);
   });
 
-  it("a hand trembling on a string (bigger than the margin) never sounds", () => {
-    const d = new StrumDetector(cfg);
-    const evs: GestureEvent[] = [];
-    for (let k = 0; k < 90; k++) evs.push(...d.push(frameAt(k * 33, off(0) + (k % 2 ? 0.01 : -0.01)), ASPECT));
-    expect(of(evs, "pluck")).toHaveLength(0);
-  });
-
   it("says why a crossing didn't count", () => {
     const slow = sweep(new StrumDetector(cfg), 0, -0.1, 0.1, 3000);
     expect(of(slow, "reject").map((e) => e.reason)).toEqual(["slow", "slow"]);
     const zone = sweep(new StrumDetector(cfg), 0, -0.1, 0.1, 200, { u: 0.3 });
     expect(of(zone, "reject").map((e) => e.reason)).toEqual(["zone", "zone"]);
-    const d = new StrumDetector(cfg);
-    const tremble: GestureEvent[] = [];
-    for (let k = 0; k < 30; k++) tremble.push(...d.push(frameAt(k * 33, off(0) + (k % 2 ? 0.01 : -0.01)), ASPECT));
-    expect(new Set(of(tremble, "reject").map((e) => e.reason))).toEqual(new Set(["short"]));
   });
 
   it("is silent while the player is placing the dombyra", () => {

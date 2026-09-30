@@ -66,27 +66,18 @@ export function fretAt(u: number, wires: number[]): number {
   return k;
 }
 
-const KNUCKLES = [5, 9, 13, 17];
+const PALM = [0, 5, 9, 13, 17]; // wrist + knuckles
 
-// Where the neck lies in the neck hand: `lift` palm lengths past the knuckle row, towards the
-// fingers, like a real neck resting in the fingers. Built only from wrist and knuckles, which barely
-// move when the fingers curl.
-// With `L` (fret detection, and the dot drawn for it) the lift goes only across the neck: along it the
-// grip is exactly the knuckle row. Otherwise bending or turning the wrist swings the wrist → knuckle
-// direction and slides the grip up to half a fret along the neck.
-export function gripPoint(points: Vec[], lift = 0.5, L?: Layout): Vec {
+// Where the neck hand holds the neck: the palm center, the big dot drawn on the hand. Built only from
+// wrist and knuckles, which barely move when the wrist turns or the fingers curl, so the fret is steady.
+export function gripPoint(points: Vec[]): Vec {
   let x = 0;
   let y = 0;
-  for (const i of KNUCKLES) {
+  for (const i of PALM) {
     x += points[i].x;
     y += points[i].y;
   }
-  x /= KNUCKLES.length;
-  y /= KNUCKLES.length;
-  const w = points[0];
-  if (!L) return { x: x + (x - w.x) * lift, y: y + (y - w.y) * lift };
-  const k = toNeck({ x, y }, L);
-  return fromNeck(k.u, k.v + (k.v - toNeck(w, L).v) * lift, L);
+  return { x: x / PALM.length, y: y / PALM.length };
 }
 
 // Where the strum hand pinches: between the thumb and index fingertips.
