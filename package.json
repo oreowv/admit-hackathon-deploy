@@ -1,5 +1,5 @@
 {
-  "name": "air-guitar",
+  "name": "air-dombyra",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,7 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1"
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "tone": "^15.1.22"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

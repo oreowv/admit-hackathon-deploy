@@ -6,4 +6,4 @@ export { LiveSource } from "./live";
 export { ReplaySource, parseRecording, frames } from "./replay";
 export { Recorder, downloadRecording } from "./recorder";
 export { drawOverlay } from "./overlay";
-export { DEFAULT_FRET_ZONE, type FretZone } from "./fret";
+export { FretTracker } from "./fret";

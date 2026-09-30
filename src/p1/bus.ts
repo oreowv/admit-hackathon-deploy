@@ -14,6 +14,13 @@ export class FrameBus {
 
   emit(frame: HandFrame): void {
     this.latest = frame;
-    for (const fn of this.listeners) fn(frame);
+    // A throwing listener must not kill the camera loop that called emit().
+    for (const fn of this.listeners) {
+      try {
+        fn(frame);
+      } catch (e) {
+        console.error("[bus] listener failed", e);
+      }
+    }
   }
 }

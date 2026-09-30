@@ -1,60 +1,57 @@
-export type FretZone = {
-  x0: number; // left edge of the neck zone (0..1 of screen width)
-  x1: number; // right edge
-  y0: number; // top edge
-  y1: number; // bottom edge
-  frets: number;
-  hysteresis: number; // fraction of one fret width needed to leave the current fret
-  reversed: boolean; // false: fret 1 at x0 (far left, like the headstock), 6 near x1
-};
+import type { Point } from "./types";
+import { cloneInstrument, type InstrumentConfig, type InstrumentPose, type Vec } from "../config";
+import { FRETS, fretAt, gripPoint, layout, toNeck, type Layout } from "../instrument";
 
-export const DEFAULT_FRET_ZONE: FretZone = {
-  x0: 0.04,
-  x1: 0.46,
-  y0: 0.15,
-  y1: 0.95,
-  frets: 6,
-  hysteresis: 0.3,
-  reversed: false,
-};
-
-const Y_MARGIN = 0.03;
-
-// Position along the zone in fret units: 0..frets.
-export function fretPosition(x: number, zone: FretZone): number {
-  const u = ((x - zone.x0) / (zone.x1 - zone.x0)) * zone.frets;
-  return zone.reversed ? zone.frets - u : u;
-}
-
+// Which fret the neck hand holds: its grip point projected onto the drawn neck. Sticky around the
+// current fret (hysteresis) and debounced (switchFrames) so it doesn't flicker on a fret wire.
 export class FretTracker {
   private current = 0;
+  private pending = 0;
+  private streak = 0;
 
-  constructor(public zone: FretZone = { ...DEFAULT_FRET_ZONE }) {}
+  constructor(public cfg: InstrumentConfig = cloneInstrument()) {}
 
   get value(): number {
     return this.current;
   }
 
-  update(palm?: { x: number; y: number }): number {
-    if (!palm) return (this.current = 0);
-    const { frets, hysteresis: h } = this.zone;
-    const u = fretPosition(palm.x, this.zone);
-
-    if (this.current > 0) {
-      const inY = palm.y >= this.zone.y0 - Y_MARGIN && palm.y <= this.zone.y1 + Y_MARGIN;
-      if (inY && u >= this.current - 1 - h && u <= this.current + h) return this.current;
-    }
-
-    const inY = palm.y >= this.zone.y0 && palm.y <= this.zone.y1;
-    if (!inY || u < 0 || u >= frets) {
-      // Leaving the zone also needs to clear the hysteresis band (handled above), so we get here
-      // only when clearly outside.
+  update(points: Point[] | undefined, aspect: number, pose: InstrumentPose = this.cfg): number {
+    if (!points) {
+      this.streak = 0;
       return (this.current = 0);
     }
-    return (this.current = Math.min(frets, Math.floor(u) + 1));
+    const raw = this.rawFret(layout(this.cfg, aspect, pose), gripPoint(points, this.cfg.gripLift));
+    if (raw === this.current) {
+      this.streak = 0;
+    } else {
+      if (raw !== this.pending) {
+        this.pending = raw;
+        this.streak = 0;
+      }
+      if (++this.streak >= this.cfg.switchFrames) {
+        this.current = raw;
+        this.streak = 0;
+      }
+    }
+    return this.current;
   }
 
   reset(): void {
-    this.current = 0;
+    this.current = this.pending = this.streak = 0;
+  }
+
+  private rawFret(L: Layout, grip: Vec): number {
+    const { u, v } = toNeck(grip, L);
+    const band = this.cfg.neckWidth / 2 + this.cfg.grip;
+    const c = this.current;
+    if (c > 0) {
+      // Sticky margin on each side, sized by the narrower of the two frets it borders, so a wide fret
+      // doesn't swallow half of a narrow neighbour (e.g. fret 2 next to the half-step fret 3).
+      const width = (k: number) => (k >= 1 && k <= FRETS ? L.wires[k] - L.wires[k - 1] : Infinity);
+      const lo = this.cfg.hysteresis * Math.min(width(c), width(c - 1));
+      const hi = this.cfg.hysteresis * Math.min(width(c), width(c + 1));
+      if (Math.abs(v) <= band * 1.25 && u >= L.wires[c - 1] - lo && u < L.wires[c] + hi) return c;
+    }
+    return Math.abs(v) <= band ? fretAt(u, L.wires) : 0;
   }
 }

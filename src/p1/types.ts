@@ -1,4 +1,5 @@
 // Contract between P1 (perception) and P2 (strum + sound). Do not change without telling P2.
+import type { InstrumentPose } from "../config";
 
 export type Point = { x: number; y: number; z: number };
 
@@ -14,6 +15,9 @@ export type HandFrame = {
   strum?: HandData; // right-of-screen hand; undefined when not visible
   fret: number; // 0 = open / no neck hand, 1..6
   muted: boolean;
+  pose?: InstrumentPose; // where the dombyra is this frame (tilt follows the neck hand); pass to instrument.layout
+  placing?: boolean; // player is positioning the dombyra (button on the page): not playing, ignore strums
+  dragging?: boolean; // …and is pinching right now, so the dombyra moves with the strum hand
 };
 
 export type Recording = {

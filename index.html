@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Air Guitar · P1</title>
+    <title>Air Dombyra</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <header class="bar">
-      <strong>Air Guitar · P1</strong>
+      <strong>Air Dombyra</strong>
       <span id="source" class="pill">—</span>
       <span id="fps" class="pill">0 fps</span>
       <span id="hand-neck" class="pill hand neck">гриф ✕</span>
@@ -60,10 +60,11 @@
         </section>
 
         <section>
-          <h2>Гриф</h2>
-          <label class="check"><input id="reversed" type="checkbox" /> Лады справа налево</label>
-          <label>Начало зоны <input id="zone-x0" type="range" min="0" max="0.4" step="0.01" /></label>
-          <label>Конец зоны <input id="zone-x1" type="range" min="0.2" max="0.7" step="0.01" /></label>
+          <h2>Домбыра</h2>
+          <button id="btn-place">Двигать домбыру</button>
+          <label class="check"><input id="follow" type="checkbox" /> Гриф за левой рукой</label>
+          <label>Наклон <input id="tilt" type="range" min="-10" max="40" step="1" /></label>
+          <label>Высота <input id="height" type="range" min="0.25" max="0.8" step="0.01" /></label>
         </section>
       </aside>
     </main>

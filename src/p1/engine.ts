@@ -2,15 +2,19 @@ import type { HandData, HandFrame, Point } from "./types";
 import { LandmarkSmoother, type FilterParams } from "./oneEuro";
 import { palmCenter, palmSize } from "./geometry";
 import { RoleAssigner, DEFAULT_ROLE_OPTIONS, type RoleOptions } from "./roles";
-import { FretTracker, DEFAULT_FRET_ZONE, type FretZone } from "./fret";
+import { FretTracker } from "./fret";
 import { MuteDetector } from "./mute";
+import { NeckAim } from "./aim";
+import { Placement } from "./grab";
+import { cloneInstrument, DEFAULT_INSTRUMENT, type InstrumentConfig } from "../config";
+import { gripPoint } from "../instrument";
 
 export type EngineOptions = {
   aspect: number; // video width / height
   mirror: boolean;
   neckFilter: FilterParams;
   strumFilter: FilterParams; // lighter smoothing so P2 still sees fast strums
-  fretZone: FretZone;
+  instrument: InstrumentConfig;
   roles: RoleOptions;
   muteFrames: number;
 };
@@ -18,9 +22,9 @@ export type EngineOptions = {
 export const DEFAULT_ENGINE_OPTIONS: EngineOptions = {
   aspect: 16 / 9,
   mirror: true,
-  neckFilter: { minCutoff: 1.0, beta: 2.0 },
+  neckFilter: { minCutoff: 0.7, beta: 2.0 }, // steadier fingertip on narrow frets
   strumFilter: { minCutoff: 2.0, beta: 8.0 },
-  fretZone: DEFAULT_FRET_ZONE,
+  instrument: DEFAULT_INSTRUMENT,
   roles: DEFAULT_ROLE_OPTIONS,
   muteFrames: 4,
 };
@@ -31,6 +35,8 @@ export class P1Engine {
   readonly fret: FretTracker;
   private roles: RoleAssigner;
   private mute: MuteDetector;
+  readonly grab: Placement; // the page's "move dombyra" button toggles grab.enabled
+  private aim: NeckAim;
   private neckSmoother: LandmarkSmoother;
   private strumSmoother: LandmarkSmoother;
   private lastT = -Infinity;
@@ -38,8 +44,10 @@ export class P1Engine {
   constructor(opts: Partial<EngineOptions> = {}) {
     this.opts = { ...DEFAULT_ENGINE_OPTIONS, ...opts };
     this.roles = new RoleAssigner(this.opts.roles);
-    this.fret = new FretTracker({ ...this.opts.fretZone });
+    this.fret = new FretTracker(cloneInstrument(this.opts.instrument));
     this.mute = new MuteDetector(this.opts.muteFrames);
+    this.aim = new NeckAim(this.fret.cfg);
+    this.grab = new Placement(this.fret.cfg);
     this.neckSmoother = new LandmarkSmoother(this.opts.neckFilter);
     this.strumSmoother = new LandmarkSmoother(this.opts.strumFilter);
   }
@@ -56,13 +64,21 @@ export class P1Engine {
 
     const neckData = this.toHandData(neck, this.neckSmoother, t);
     const strumData = this.toHandData(strum, this.strumSmoother, t);
+    // Grab first: it may move the pivot the neck then aims from.
+    const dragging = this.grab.update(neckData, strumData, this.aim.value, this.opts.aspect);
+    const grip = neckData && gripPoint(neckData.points, this.fret.cfg.gripLift);
+    const angle = this.aim.update(grip, t, this.opts.aspect);
+    const pose = { angle, pivot: { ...this.fret.cfg.pivot } };
 
     return {
       t,
       neck: neckData,
       strum: strumData,
-      fret: this.fret.update(neckData?.palm),
+      fret: this.fret.update(neckData?.points, this.opts.aspect, pose),
       muted: this.mute.update(neckData?.points, this.opts.aspect),
+      pose,
+      placing: this.grab.enabled,
+      dragging,
     };
   }
 
@@ -74,6 +90,8 @@ export class P1Engine {
     this.roles.reset();
     this.fret.reset();
     this.mute.reset();
+    this.aim.reset();
+    this.grab.reset();
     this.neckSmoother.reset();
     this.strumSmoother.reset();
     this.lastT = -Infinity;
