@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Air Guitar · P1</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <strong>Air Guitar · P1</strong>
+      <span id="source" class="pill">—</span>
+      <span id="fps" class="pill">0 fps</span>
+      <span id="hand-neck" class="pill hand neck">гриф ✕</span>
+      <span id="hand-strum" class="pill hand strum">бой ✕</span>
+    </header>
+
+    <main>
+      <div class="stage">
+        <canvas id="canvas" width="1280" height="720"></canvas>
+        <div class="hud">
+          <div class="fret"><span>лад</span><b id="fret">0</b></div>
+          <div id="mute" class="mute">MUTE</div>
+        </div>
+        <div id="message" class="message">Нажмите «Камера», чтобы начать</div>
+      </div>
+
+      <aside class="panel">
+        <section>
+          <h2>Источник</h2>
+          <button id="btn-camera" class="primary">Камера</button>
+          <label class="file">
+            Открыть запись…
+            <input id="file-replay" type="file" accept="application/json,.json" />
+          </label>
+        </section>
+
+        <section>
+          <h2>Запись для P2</h2>
+          <label>Сценарий
+            <select id="rec-label">
+              <option value="slow">Медленные удары вниз/вверх</option>
+              <option value="fast">Быстрые удары</option>
+              <option value="weak">Слабые / короткие удары</option>
+              <option value="lost">Правая рука уходит из кадра</option>
+              <option value="far">Рука слишком далеко</option>
+              <option value="frets-mute">Смена ладов + кулак</option>
+              <option value="free">Свободная запись</option>
+            </select>
+          </label>
+          <label>Длительность
+            <select id="rec-duration">
+              <option value="10000">10 с</option>
+              <option value="30000" selected>30 с</option>
+              <option value="60000">60 с</option>
+            </select>
+          </label>
+          <button id="btn-record" disabled>● Записать</button>
+          <progress id="rec-progress" max="1" value="0"></progress>
+        </section>
+
+        <section>
+          <h2>Гриф</h2>
+          <label class="check"><input id="reversed" type="checkbox" /> Лады справа налево</label>
+          <label>Начало зоны <input id="zone-x0" type="range" min="0" max="0.4" step="0.01" /></label>
+          <label>Конец зоны <input id="zone-x1" type="range" min="0.2" max="0.7" step="0.01" /></label>
+        </section>
+      </aside>
+    </main>
+
+    <video id="video" playsinline muted hidden></video>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

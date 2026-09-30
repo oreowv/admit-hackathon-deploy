@@ -1,0 +1,66 @@
+# Air Guitar: P1 (распознавание рук)
+
+P1 превращает видео с камеры в `HandFrame` на каждом кадре. Удары и звук делает P2.
+
+```
+npm install
+npm run dev      # http://localhost:5173 (или порт, который выведет Vite)
+npm test         # логика без камеры
+node scripts/make-demo.mjs   # пересоздать recordings/synthetic-demo.json
+```
+
+## Контракт (src/p1/types.ts)
+
+```ts
+type HandFrame = {
+  t: number;         // мс, строго растёт
+  neck?: HandData;   // левая рука на экране (гриф), undefined если не видна
+  strum?: HandData;  // правая рука (бой), undefined если не видна
+  fret: number;      // 0 = открытые / нет руки, 1..6
+  muted: boolean;    // кулак на левой руке
+};
+type HandData = {
+  points: {x,y,z}[]; // 21 точка, сглаженные, 0..1, уже зеркальные
+  palm: {x,y};       // центр ладони
+  size: number;      // размер ладони (в долях высоты кадра), для «слишком далеко»
+};
+```
+
+## Для P2
+
+Вживую:
+```ts
+import { bus } from "./main";               // или window.p1.bus в DevTools
+bus.subscribe((frame) => strumDetector.push(frame));
+```
+
+По записи, детерминированно, без камеры:
+```ts
+import { parseRecording, frames } from "./p1";
+const rec = parseRecording(fs.readFileSync("recordings/xxx.json", "utf8"));
+for (const f of frames(rec)) strumDetector.push(f);
+```
+
+В браузере: «Открыть запись…» проигрывает JSON в реальном времени через тот же `bus`.
+
+## Запись
+
+1. «Камера», затем выбрать сценарий и длительность, затем «● Записать».
+2. Файл `handframes_<сценарий>_<время>.json` скачивается сам. Положить его в `recordings/` и отдать P2.
+
+Сценарии: медленные удары, быстрые, слабые, рука уходит из кадра, рука далеко, смена ладов + кулак.
+
+## Устройство
+
+| Файл | Что делает |
+|---|---|
+| `p1/live.ts` | камера + MediaPipe HandLandmarker (GPU → CPU fallback), модель и wasm лежат локально в `public/` |
+| `p1/engine.ts` | чистый конвейер: зеркало → роли → сглаживание → лад → mute |
+| `p1/roles.ts` | левая на экране = гриф; идентичность по ближайшей прошлой позиции, handedness MediaPipe игнорируется |
+| `p1/oneEuro.ts` | One Euro Filter; у руки боя сглаживание слабее, чтобы не терять быстрые удары |
+| `p1/fret.ts` | зона грифа на экране, 6 ладов, гистерезис 30% ширины лада |
+| `p1/mute.ts` | ≥3 согнутых пальца = кулак, переключение после 4 кадров подряд |
+| `p1/recorder.ts`, `p1/replay.ts` | запись в JSON и воспроизведение |
+| `p1/overlay.ts` | скелеты, зона грифа, подписи |
+
+Параметры для подстройки (`DEFAULT_ENGINE_OPTIONS` в `engine.ts`): `neckFilter`/`strumFilter` (minCutoff ниже → плавнее, beta выше → меньше задержка), `fretZone`, `muteFrames`. Зону грифа и направление ладов можно менять слайдерами на странице.
