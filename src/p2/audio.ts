@@ -1,6 +1,5 @@
 import * as Tone from "tone";
 import type { GestureEvent } from "./types";
-import { midiFor } from "./notes";
 
 const SAMPLES = `${import.meta.env.BASE_URL}samples/`;
 
@@ -138,7 +137,7 @@ export class DombyraAudio {
         time = Math.max(now, this.sweep.at + Math.min(hi, Math.max(lo, ev.t - this.sweep.t)) / 1000);
       }
       const length = this._sustain === "short" ? SHORT_S : undefined;
-      this.voices[ev.string].play(midiFor(ev.string, ev.fret), ev.vel, ev.muted, time, length);
+      this.voices[ev.string].play(ev.midi, ev.vel, ev.muted, time, length);
     } else if (ev.type === "mute") {
       for (const v of this.voices) v.stop(now);
     }

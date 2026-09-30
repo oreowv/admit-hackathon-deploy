@@ -65,8 +65,13 @@ export function cloneInstrument(cfg: InstrumentConfig = DEFAULT_INSTRUMENT): Ins
 // Semitones above the open string for frets 0..12: chromatic like a guitar, one octave per string.
 export const FRET_SEMITONES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-// Open strings, top line first: tuned a fourth apart. MIDI numbers (D3 = 50, G3 = 55).
-export const OPEN_STRINGS = [50, 55] as const;
+// Open strings, top line first, as MIDI numbers (D3 = 50). The two traditional dombyra tunings.
+export const TUNINGS = {
+  "D-A": [50, 57], // a fifth: brighter bottom string
+  "D-G": [50, 55], // a fourth
+} as const;
+export type TuningName = keyof typeof TUNINGS;
+export const DEFAULT_TUNING: TuningName = "D-A";
 
 // Strum detection. Speeds are across the strings, in frame heights per second.
 export type StrumConfig = {

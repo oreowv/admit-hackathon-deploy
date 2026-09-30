@@ -1,7 +1,7 @@
 import type { HandFrame } from "../p1/types";
 import type { InstrumentConfig } from "../config";
 import { fromNeck, layout, stringOffset } from "../instrument";
-import { midiFor, noteName } from "./notes";
+import { noteName } from "./notes";
 import { pickPoint } from "./strum";
 import type { GestureEvent, StringId } from "./types";
 
@@ -24,7 +24,7 @@ export class StrumFx {
     if (ev.type === "reject") {
       this.reject = { text: REJECT_TEXT[ev.reason], at: now };
     } else if (ev.type === "pluck") {
-      const note = noteName(midiFor(ev.string, ev.fret));
+      const note = noteName(ev.midi);
       this.plucks[ev.string] = { at: now, vel: ev.vel, muted: ev.muted, note };
     } else if (ev.type === "strum") {
       const which = ev.strings.length === 2 ? "обе струны" : `струна ${ev.strings[0] + 1}`;

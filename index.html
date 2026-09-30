@@ -4,57 +4,85 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Air Dombyra</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+    />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <header class="bar">
-      <strong>Air Dombyra</strong>
-      <span id="source" class="pill">—</span>
-      <span id="fps" class="pill">0 fps</span>
-      <span id="hand-neck" class="pill hand neck">гриф ✕</span>
-      <span id="hand-strum" class="pill hand strum">бой ✕</span>
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M6 8.5 9.5 5l4 4-3.5 3.5z" fill="#8a5a35" />
+          <path d="M11 11.5 28 28.5" stroke="#8a5a35" stroke-width="4" stroke-linecap="round" />
+          <path d="M26.5 25c5-4.5 13-3.5 16 1.5 3 5 .5 12.5-5.5 15-5.5 2.5-11 0-13-5-1.5-4 0-9 2.5-11.5z" fill="#c98c55" />
+          <path d="M12 12.5 38 38.5M13 10.5 39 36.5" stroke="#fff" stroke-width="1" opacity=".85" />
+        </svg>
+        <div>
+          <strong class="brand-name">Air Dombyra</strong>
+          <span class="brand-tag">Играй на домбыре в воздухе</span>
+        </div>
+      </div>
+      <div class="status">
+        <span id="source" class="chip">—</span>
+        <span id="fps" class="chip">0 fps</span>
+        <span id="hand-neck" class="chip hand neck">гриф ✕</span>
+        <span id="hand-strum" class="chip hand strum">бой ✕</span>
+      </div>
     </header>
 
     <main>
-      <div class="stage">
-        <canvas id="canvas" width="1280" height="720"></canvas>
-        <div class="hud">
-          <div class="fret"><span>лад</span><b id="fret">0</b></div>
-          <div id="mute" class="mute">MUTE</div>
+      <div class="stage-col">
+        <div class="stage">
+          <canvas id="canvas" width="1280" height="720"></canvas>
+          <div class="hud">
+            <div class="fret"><span>лад</span><b id="fret">0</b></div>
+            <div id="mute" class="mute">MUTE</div>
+          </div>
+          <div id="message" class="message">Нажмите «Включить камеру», чтобы начать</div>
         </div>
-        <div id="message" class="message">Нажмите «Камера», чтобы начать</div>
+        <p class="privacy">Всё работает прямо в браузере — видео с камеры никуда не отправляется.</p>
       </div>
 
       <aside class="panel">
-        <section>
-          <h2>Источник</h2>
-          <button id="btn-camera" class="primary">Камера</button>
+        <section class="card">
+          <h2>Начать</h2>
+          <button id="btn-camera" class="primary">Включить камеру</button>
           <label class="file">
             Открыть запись…
             <input id="file-replay" type="file" accept="application/json,.json" />
           </label>
         </section>
 
-        <section>
-          <h2>Видео</h2>
-          <button id="btn-video" disabled>● Записать видео</button>
-          <div id="clip" class="clip" hidden>
-            <video id="clip-video" controls playsinline></video>
-            <button id="clip-save" class="primary">💾 Сохранить видео</button>
-            <button id="clip-discard">Удалить</button>
-          </div>
+        <section class="card">
+          <h2>Как играть</h2>
+          <ul class="howto">
+            <li><span class="dot dot-neck"></span><span><b>Левая рука</b> — ладонь на грифе, лад по синей точке</span></li>
+            <li><span class="dot dot-strum"></span><span><b>Правая рука</b> — указательным пальцем по струнам над корпусом</span></li>
+            <li><span class="dot dot-mute"></span><span><b>Кулак вне ладов</b> — заглушить струны</span></li>
+            <li><span class="dot dot-move"></span><span><b>Двигать домбыру</b> — щипок правой на кружке у хвоста, щипок левой — наклон</span></li>
+          </ul>
         </section>
 
-        <section>
+        <section class="card">
           <h2>Домбыра</h2>
           <button id="btn-place">Двигать домбыру</button>
           <label>Струны
-            <select id="strings">
-              <option value="both">Обе струны</option>
-              <option value="0">Только верхняя (D)</option>
-              <option value="1">Только нижняя (G)</option>
-            </select>
-          </label>
+              <select id="strings">
+                <option value="both">Обе струны</option>
+                <option value="0">Только верхняя (D)</option>
+                <option value="1">Только нижняя (G)</option>
+              </select>
+            </label>
+            <label>Строй
+              <select id="tuning">
+                <option value="D-A">D–A (квинта)</option>
+                <option value="D-G">D–G (кварта)</option>
+              </select>
+            </label>
           <label>Звучание
             <select id="sustain">
               <option value="long">Долгое</option>
@@ -62,8 +90,20 @@
             </select>
           </label>
           <label class="check"><input id="follow" type="checkbox" /> Гриф за левой рукой</label>
-          <label>Наклон <input id="tilt" type="range" min="-10" max="40" step="1" /></label>
-          <label>Высота <input id="height" type="range" min="0.25" max="0.8" step="0.01" /></label>
+          <label class="range">Наклон <input id="tilt" type="range" min="-10" max="40" step="1" /></label>
+          <label class="range">Высота <input id="height" type="range" min="0.25" max="0.8" step="0.01" /></label>
+        </section>
+
+        <section class="card">
+          <h2>Видео</h2>
+          <button id="btn-video" disabled>● Записать видео</button>
+          <div id="clip" class="clip" hidden>
+            <video id="clip-video" controls playsinline></video>
+            <div class="grid2">
+              <button id="clip-save" class="primary">💾 Сохранить</button>
+              <button id="clip-discard">Удалить</button>
+            </div>
+          </div>
         </section>
       </aside>
     </main>

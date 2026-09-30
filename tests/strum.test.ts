@@ -263,12 +263,25 @@ describe("StrumDetector", () => {
 });
 
 describe("notes", () => {
-  it("open strings are D3 and G3; frets are semitones, one octave per string", () => {
-    expect(noteName(midiFor(0, 0))).toBe("D3");
-    expect(noteName(midiFor(1, 0))).toBe("G3");
-    expect(noteName(midiFor(0, 5))).toBe("G3"); // fret 5 on the D string = open G, like a guitar's 4th
-    expect(noteName(midiFor(0, 12))).toBe("D4");
-    expect(noteName(midiFor(1, 12))).toBe("G4");
+  it("frets are semitones, one octave per string, in both traditional tunings", () => {
+    expect(noteName(midiFor(0, 0, "D-G"))).toBe("D3");
+    expect(noteName(midiFor(1, 0, "D-G"))).toBe("G3");
+    expect(noteName(midiFor(0, 5, "D-G"))).toBe("G3"); // fret 5 on the D string = open G, like a guitar's 4th
+    expect(noteName(midiFor(1, 12, "D-G"))).toBe("G4");
+    expect(noteName(midiFor(0, 0, "D-A"))).toBe("D3");
+    expect(noteName(midiFor(1, 0, "D-A"))).toBe("A3"); // bottom string a fifth up
+    expect(noteName(midiFor(0, 7, "D-A"))).toBe("A3");
+    expect(noteName(midiFor(1, 12, "D-A"))).toBe("A4");
+  });
+
+  it("plucks carry the note for the current tuning", () => {
+    const d = new StrumDetector(cfg);
+    d.tuning = "D-A";
+    const a = of(sweep(d, 0, -0.1, 0.1, 200, { extra: { fret: 0 } }), "pluck").map((e) => noteName(e.midi));
+    d.tuning = "D-G";
+    const g = of(sweep(d, 500, 0.1, -0.1, 200, { extra: { fret: 0 } }), "pluck").map((e) => noteName(e.midi));
+    expect(a).toEqual(["D3", "A3"]);
+    expect(g).toEqual(["G3", "D3"]);
   });
 });
 

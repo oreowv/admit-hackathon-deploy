@@ -8,7 +8,8 @@ import {
   type HandFrame,
   type Recording,
 } from "./p1";
-import { DombyraAudio, StrumDetector, StrumFx } from "./p2";
+import { DombyraAudio, StrumDetector, StrumFx, noteName } from "./p2";
+import { DEFAULT_TUNING, TUNINGS, type TuningName } from "./config";
 import { VideoCapture, saveClip, type Clip } from "./capture";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -34,6 +35,7 @@ const ui = {
   btnPlace: $<HTMLButtonElement>("btn-place"),
   strings: $<HTMLSelectElement>("strings"),
   sustain: $<HTMLSelectElement>("sustain"),
+  tuning: $<HTMLSelectElement>("tuning"),
   follow: $<HTMLInputElement>("follow"),
   tilt: $<HTMLInputElement>("tilt"),
   height: $<HTMLInputElement>("height"),
@@ -68,6 +70,27 @@ try {
   setStrings("both");
 }
 ui.strings.addEventListener("change", () => setStrings(ui.strings.value));
+
+// Dombyra tuning: D–A (a fifth) or D–G (a fourth). Remembered per browser.
+const TUNING_KEY = "air-dombyra:tuning";
+function setTuning(value: string): void {
+  strum.tuning = value in TUNINGS ? (value as TuningName) : DEFAULT_TUNING;
+  ui.tuning.value = strum.tuning;
+  const [top, bottom] = TUNINGS[strum.tuning].map((m) => noteName(m).replace(/\d+$/, ""));
+  ui.strings.options[1].text = `Только верхняя (${top})`;
+  ui.strings.options[2].text = `Только нижняя (${bottom})`;
+  try {
+    localStorage.setItem(TUNING_KEY, strum.tuning);
+  } catch {
+    // no storage: choice just isn't remembered
+  }
+}
+try {
+  setTuning(localStorage.getItem(TUNING_KEY) ?? DEFAULT_TUNING);
+} catch {
+  setTuning(DEFAULT_TUNING);
+}
+ui.tuning.addEventListener("change", () => setTuning(ui.tuning.value));
 
 // Long ring or a short, percussive dombyra-like decay. Remembered per browser.
 const SUSTAIN_KEY = "air-dombyra:sustain";

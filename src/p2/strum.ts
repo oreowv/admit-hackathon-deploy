@@ -1,6 +1,7 @@
 import type { HandFrame } from "../p1/types";
-import { DEFAULT_STRUM, type InstrumentConfig, type StrumConfig, type Vec } from "../config";
+import { DEFAULT_STRUM, DEFAULT_TUNING, type InstrumentConfig, type StrumConfig, type TuningName, type Vec } from "../config";
 import { layout, stringOffset, toNeck } from "../instrument";
+import { midiFor } from "./notes";
 import type { Dir, GestureEvent, StringId } from "./types";
 
 // The pick: the end of the index finger (between its last joint and the tip). On a dombyra the strike is
@@ -30,6 +31,7 @@ type Group = { dir: Dir; strings: StringId[]; t: number; vel: number; speed: num
 // it's crossed; crossings of one sweep are grouped into a single strum event with the strings it hit.
 export class StrumDetector {
   only?: StringId; // play just this string; the other is ignored entirely. undefined = both
+  tuning: TuningName = DEFAULT_TUNING;
   private prev?: Sample;
   private strings: StringState[] = [newString(), newString()];
   private group?: Group;
@@ -135,7 +137,8 @@ export class StrumDetector {
       this.group = { dir: h.dir, strings: [h.string], t: h.t, vel, speed: h.speed, fret: frame.fret };
     }
     const first = this.group.strings.length === 1;
-    out.push({ type: "pluck", string: h.string, fret: frame.fret, vel, muted: frame.muted, first, t: h.t });
+    const midi = midiFor(h.string, frame.fret, this.tuning);
+    out.push({ type: "pluck", string: h.string, fret: frame.fret, midi, vel, muted: frame.muted, first, t: h.t });
     // Every playable string hit: nothing left to wait for.
     if (this.group.strings.length === (this.only === undefined ? 2 : 1)) this.flush(out);
   }
